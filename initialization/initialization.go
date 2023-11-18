@@ -172,6 +172,7 @@ type Initializer struct {
 	nonceValue   []byte
 	nonce        atomic.Pointer[uint64]
 	lastPosition atomic.Pointer[uint64]
+	// numUnits     atomic.Pointer[uint32]
 
 	numLabelsWritten atomic.Uint64
 	diskState        *DiskState
@@ -226,6 +227,7 @@ func NewInitializer(opts ...OptionFunc) (*Initializer, error) {
 		}
 		init.nonce.Store(m.Nonce)
 		init.lastPosition.Store(m.LastPosition)
+		// init.numUnits.Store(&m.NumUnits)
 	}
 
 	if err := init.saveMetadata(); err != nil {
@@ -299,6 +301,16 @@ func (init *Initializer) Initialize(ctx context.Context) error {
 		defer woReference.Close()
 	}
 
+	// 读metadata文件，匹配numUnits数值
+	// if init.opts.NumUnits == *init.numUnits.Load() {
+	// 	init.logger.Info("initialization: options numUnits isn't match metadata numUnits")
+	// 	return nil
+	// }
+	// 改进
+	// 1. 根据p盘大小获取文件数量()
+	// 2. 根据显卡数量拆分文件
+	// 3. 开启并发P盘
+
 	for i := layout.FirstFileIdx; i <= lastFileIndex; i++ {
 		fileOffset := uint64(i) * layout.FileNumLabels
 		fileNumLabels := layout.FileNumLabels
@@ -309,6 +321,13 @@ func (init *Initializer) Initialize(ctx context.Context) error {
 		if err := init.initFile(ctx, wo, woReference, i, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
 			return err
 		}
+	}
+
+	//  ComputNonce开关为false时，跳过该步骤
+	fmt.Println(init.opts.DisableComputeNonce)
+	if init.opts.DisableComputeNonce {
+		init.logger.Info("initialization: disable computing nonce value")
+		return nil
 	}
 
 	if init.nonce.Load() != nil {
@@ -517,12 +536,14 @@ func (init *Initializer) initFile(ctx context.Context, wo, woReference *oracle.W
 		startPosition := fileOffset + currentPosition
 		endPosition := startPosition + uint64(batchSize) - 1
 
+		// 进入生成bin
 		res, err := wo.Positions(startPosition, endPosition)
 		if err != nil {
 			return fmt.Errorf("failed to compute labels: %w", err)
 		}
 
 		// sanity check with reference oracle
+		// 进入生成bin
 		reference, err := woReference.Position(endPosition)
 		if err != nil {
 			return fmt.Errorf("failed to compute reference label: %w", err)
@@ -536,6 +557,7 @@ func (init *Initializer) initFile(ctx context.Context, wo, woReference *oracle.W
 			}
 		}
 
+		// 获取nonce
 		if res.Nonce != nil {
 			candidate := res.Output[(*res.Nonce-startPosition)*postrs.LabelLength:]
 			candidate = candidate[:postrs.LabelLength]
@@ -554,6 +576,7 @@ func (init *Initializer) initFile(ctx context.Context, wo, woReference *oracle.W
 				init.logger.Info("initialization: found new best nonce", fields...)
 				init.nonceValue = nonceValue
 				init.nonce.Store(res.Nonce)
+				// 写入metadata
 				init.saveMetadata()
 			}
 		}
@@ -647,4 +670,40 @@ func (init *Initializer) saveMetadata() error {
 
 func (init *Initializer) loadMetadata() (*shared.PostMetadata, error) {
 	return LoadMetadata(init.opts.DataDir)
+}
+
+// 工作线程池
+// 1. 拥有长度为x的并发
+// 2. 并发满时阻塞
+type Worker struct {
+	provider int
+	wg       sync.WaitGroup
+}
+
+func (w *Worker) WorkerThread(init *Initializer, ctx context.Context, wo, woReference *oracle.WorkOracle, fileIndex int, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
+	defer w.wg.Done()
+
+	init.opts.ProviderID = w.provider
+	if err := init.initFile(ctx, wo, woReference, fileIndex, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func WorkerThreadPool() {
+	// 获取GPU
+	var GPUProviders []int
+	providers, _ := postrs.OpenCLProviders()
+	for _, provider := range providers {
+		if provider.DeviceType == 2 {
+			GPUProviders = append(GPUProviders, int(provider.ID))
+			// init.logger.Info("find ", zap.String("gpu: ", provider.Model))
+		}
+	}
+
+	var pool []Worker
+	for _, i := range GPUProviders {
+		pool = append(pool, Worker{provider: i})
+	}
 }

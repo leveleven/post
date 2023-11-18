@@ -14,6 +14,7 @@ import (
 	"github.com/spacemeshos/post/shared"
 )
 
+// 读本地目录
 func Generate(ctx context.Context, ch shared.Challenge, cfg config.Config, logger *zap.Logger, opts ...OptionFunc) (*shared.Proof, *shared.ProofMetadata, error) {
 	options := option{
 		threads:  1,
@@ -34,6 +35,7 @@ func Generate(ctx context.Context, ch shared.Challenge, cfg config.Config, logge
 		provingOpts = append(provingOpts, postrs.WithPowCreator(options.powCreatorId))
 	}
 
+	// datadir 改用本地， nonces使用metadata
 	result, err := postrs.GenerateProof(options.datadir, ch, logger, options.nonces, options.threads, cfg.K1, cfg.K2, cfg.PowDifficulty, options.powFlags, provingOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating proof: %w", err)

@@ -211,25 +211,27 @@ func (w *WorkOracle) Positions(start, end uint64) (WorkOracleResult, error) {
 		return WorkOracleResult{}, fmt.Errorf("invalid `start` and `end`; expected: start <= end, given: %v > %v", start, end)
 	}
 
-	tries := 0
-	for {
-		res, err := w.scrypt.Positions(start, end)
-		tries += 1
-		switch {
-		case errors.Is(err, postrs.ErrInitializationFailed):
-			w.options.logger.With().Warn("failure during initialization", zap.Error(err))
-			if tries > w.options.maxRetries {
-				return WorkOracleResult{}, fmt.Errorf("failed to initialize scrypt after %v tries", tries)
-			}
-			w.options.logger.With().Warn("retrying initialization", zap.Int("tries", tries))
-			time.Sleep(w.options.retryDelay)
-		case err != nil:
-			return WorkOracleResult{}, err
-		default:
-			return WorkOracleResult{
-				Output: res.Output,
-				Nonce:  res.IdxSolution,
-			}, nil
-		}
-	}
+	// tries := 0
+	fmt.Println(start, end)
+	// for {
+	// 	res, err := w.scrypt.Positions(start, end)
+	// 	tries += 1
+	// 	switch {
+	// 	case errors.Is(err, postrs.ErrInitializationFailed):
+	// 		w.options.logger.With().Warn("failure during initialization", zap.Error(err))
+	// 		if tries > w.options.maxRetries {
+	// 			return WorkOracleResult{}, fmt.Errorf("failed to initialize scrypt after %v tries", tries)
+	// 		}
+	// 		w.options.logger.With().Warn("retrying initialization", zap.Int("tries", tries))
+	// 		time.Sleep(w.options.retryDelay)
+	// 	case err != nil:
+	// 		return WorkOracleResult{}, err
+	// 	default:
+	// 		return WorkOracleResult{
+	// 			Output: res.Output,
+	// 			Nonce:  res.IdxSolution,
+	// 		}, nil
+	// 	}
+	// }
+	return WorkOracleResult{}, nil
 }

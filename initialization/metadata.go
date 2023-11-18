@@ -22,7 +22,14 @@ func SaveMetadata(dir string, v *shared.PostMetadata) error {
 		return fmt.Errorf("serialization failure: %w", err)
 	}
 
-	err = os.WriteFile(filepath.Join(dir, metadataFileName), data, shared.OwnerReadWrite)
+	metadata_file, err := os.OpenFile(filepath.Join(dir, metadataFileName), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open metadata file failure: %w", err)
+	}
+	defer metadata_file.Close()
+
+	_, err = metadata_file.Write(data)
+	// err = os.WriteFile(filepath.Join(dir, metadataFileName), data, shared.OwnerReadWrite)
 	if err != nil {
 		return fmt.Errorf("write to disk failure: %w", err)
 	}

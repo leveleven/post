@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -33,6 +35,7 @@ var (
 	printProviders     bool
 	printNumFiles      bool
 	printConfig        bool
+	genkey             bool
 	genProof           bool
 	idHex              string
 	id                 []byte
@@ -51,6 +54,7 @@ func parseFlags() {
 	flag.BoolVar(&printProviders, "printProviders", false, "print the list of compute providers")
 	flag.BoolVar(&printNumFiles, "printNumFiles", false, "print the total number of files that would be initialized")
 	flag.BoolVar(&printConfig, "printConfig", false, "print the used config and options")
+	flag.BoolVar(&genkey, "genkey", false, "generate miner's key id")
 	flag.BoolVar(&genProof, "genproof", false, "generate proof as a sanity test, after initialization")
 	flag.StringVar(&opts.DataDir, "datadir", opts.DataDir, "filesystem datadir path")
 	flag.Uint64Var(&opts.MaxFileSize, "maxFileSize", opts.MaxFileSize, "max file size")
@@ -59,6 +63,8 @@ func parseFlags() {
 	flag.BoolVar(&reset, "reset", false, "whether to reset the datadir before starting")
 	flag.StringVar(&idHex, "id", "", "miner's id (public key), in hex (will be auto-generated if not provided)")
 	flag.StringVar(&commitmentAtxIdHex, "commitmentAtxId", "", "commitment atx id, in hex (required)")
+	flag.BoolVar(&opts.DisableComputeNonce, "disableComputeNonce", opts.DisableComputeNonce, "compute nonce switch")
+	flag.BoolVar(&opts.AutoGenProof, "autoGenProof", opts.AutoGenProof, "auto generate proof")
 	numUnits := flag.Uint64("numUnits", uint64(opts.NumUnits), "number of units")
 
 	flag.IntVar(&opts.FromFileIdx, "fromFile", 0, "index of the first file to init (inclusive)")
@@ -116,7 +122,10 @@ func main() {
 		if err != nil {
 			log.Fatalln("failed to get OpenCL providers", err)
 		}
-		spew.Dump(providers)
+		// spew.Dump(providers)
+		// fmt.Println(providers)
+		j, _ := json.Marshal(providers)
+		fmt.Println(string(j))
 		return
 	}
 
@@ -129,6 +138,36 @@ func main() {
 	if printConfig {
 		spew.Dump(cfg)
 		spew.Dump(opts)
+		return
+	}
+
+	if genkey {
+		filename := filepath.Join(opts.DataDir, edKeyFileName)
+		if _, err := os.Stat(filename); err == nil {
+			f, err := os.ReadFile(filename)
+			if err != nil {
+				log.Fatalln("failed to open key file:", err)
+				return
+			}
+			// defer f.Close()
+			a, _ := hex.DecodeString(string(f))
+			reader := bytes.NewBuffer(a)
+			pub, _, err := ed25519.GenerateKey(reader)
+			fmt.Printf("%x\n", pub)
+			return
+		}
+		pub, priv, err := ed25519.GenerateKey(nil)
+		if err != nil {
+			log.Fatalln("failed to generate identity:", err)
+			return
+		}
+		id = pub
+		err_sk := saveKey(priv)
+		if err_sk != nil {
+			log.Fatalln("failed to save private key:", err_sk)
+			return
+		}
+		fmt.Printf("%x\n", id)
 		return
 	}
 
@@ -184,6 +223,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
+	// 这里开始生成
 	err = init.Initialize(ctx)
 	switch {
 	case errors.Is(err, shared.ErrInitCompleted):

@@ -136,6 +136,10 @@ type InitOpts struct {
 	FromFileIdx int
 	// Index of the last file to init (inclusive). Will init to the end of declared space if not provided.
 	ToFileIdx *int
+
+	// 增加是否计算nonce
+	DisableComputeNonce bool
+	AutoGenProof        bool
 }
 
 func (o *InitOpts) MaxFileNumLabels() uint64 {
@@ -182,26 +186,30 @@ const BestProviderID = -1
 // MainnetInitOpts returns the default InitOpts for mainnet.
 func MainnetInitOpts() InitOpts {
 	return InitOpts{
-		DataDir:          DefaultDataDir,
-		NumUnits:         4,
-		MaxFileSize:      defaultMaxFileSize,
-		ProviderID:       BestProviderID,
-		Throttle:         false,
-		Scrypt:           DefaultLabelParams(),
-		ComputeBatchSize: DefaultComputeBatchSize,
+		DataDir:             DefaultDataDir,
+		NumUnits:            4,
+		MaxFileSize:         defaultMaxFileSize,
+		ProviderID:          BestProviderID,
+		Throttle:            false,
+		Scrypt:              DefaultLabelParams(),
+		ComputeBatchSize:    DefaultComputeBatchSize,
+		DisableComputeNonce: false, // 增加是否计算nonce值开关
+		AutoGenProof:        false,
 	}
 }
 
 // DefaultInitOpts returns the default InitOpts. These are intended for testing.
 func DefaultInitOpts() InitOpts {
 	return InitOpts{
-		DataDir:          DefaultDataDir,
-		NumUnits:         2,
-		MaxFileSize:      defaultMaxFileSize,
-		ProviderID:       BestProviderID,
-		Throttle:         false,
-		Scrypt:           DefaultLabelParams(),
-		ComputeBatchSize: DefaultComputeBatchSize,
+		DataDir:             DefaultDataDir,
+		NumUnits:            2,
+		MaxFileSize:         defaultMaxFileSize,
+		ProviderID:          BestProviderID,
+		Throttle:            false,
+		Scrypt:              DefaultLabelParams(),
+		ComputeBatchSize:    DefaultComputeBatchSize,
+		DisableComputeNonce: false, // 增加是否计算nonce值开关
+		AutoGenProof:        false,
 	}
 }
 
