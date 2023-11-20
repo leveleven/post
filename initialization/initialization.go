@@ -310,17 +310,43 @@ func (init *Initializer) Initialize(ctx context.Context) error {
 	// 1. 根据p盘大小获取文件数量()
 	// 2. 根据显卡数量拆分文件
 	// 3. 开启并发P盘
+	var wg sync.WaitGroup
+	providers, _ := postrs.OpenCLProviders()
+	jobs := make(chan int, lastFileIndex)
+
+	for _, provider := range providers {
+		if provider.DeviceType == 2 {
+			wg.Add(1)
+			go func(workerID int) error {
+				defer wg.Done()
+				init.logger.Info("find ", zap.String("gpu: ", provider.Model))
+				init.opts.ProviderID = workerID
+				fileOffset := uint64(<-jobs) * layout.FileNumLabels
+				fileNumLabels := layout.FileNumLabels
+				if <-jobs == lastFileIndex {
+					fileNumLabels = layout.LastFileNumLabels
+				}
+				if err := init.initFile(ctx, wo, woReference, <-jobs, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+					return err
+				}
+				return nil
+			}(int(provider.ID))
+			// GPUProviders = append(GPUProviders, int(provider.ID))
+			// init.logger.Info("find ", zap.String("gpu: ", provider.Model))
+		}
+	}
 
 	for i := layout.FirstFileIdx; i <= lastFileIndex; i++ {
-		fileOffset := uint64(i) * layout.FileNumLabels
-		fileNumLabels := layout.FileNumLabels
-		if i == lastFileIndex {
-			fileNumLabels = layout.LastFileNumLabels
-		}
+		// fileOffset := uint64(i) * layout.FileNumLabels
+		// fileNumLabels := layout.FileNumLabels
+		// if i == lastFileIndex {
+		// 	fileNumLabels = layout.LastFileNumLabels
+		// }
 
-		if err := init.initFile(ctx, wo, woReference, i, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
-			return err
-		}
+		// if err := init.initFile(ctx, wo, woReference, i, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+		// 	return err
+		// }
+		jobs <- i
 	}
 
 	//  ComputNonce开关为false时，跳过该步骤
@@ -675,35 +701,48 @@ func (init *Initializer) loadMetadata() (*shared.PostMetadata, error) {
 // 工作线程池
 // 1. 拥有长度为x的并发
 // 2. 并发满时阻塞
-type Worker struct {
-	provider int
-	wg       sync.WaitGroup
-}
+// type Worker struct {
+// 	provider int
+// 	wg       sync.WaitGroup
+// }
 
-func (w *Worker) WorkerThread(init *Initializer, ctx context.Context, wo, woReference *oracle.WorkOracle, fileIndex int, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
-	defer w.wg.Done()
+// func (w *Worker) WorkerThread(init *Initializer, ctx context.Context, wo, woReference *oracle.WorkOracle, fileIndex int, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
+// 	defer w.wg.Done()
 
-	init.opts.ProviderID = w.provider
-	if err := init.initFile(ctx, wo, woReference, fileIndex, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
-		return err
-	}
+// 	init.opts.ProviderID = w.provider
+// 	if err := init.initFile(ctx, wo, woReference, fileIndex, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+// 		return err
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
-func WorkerThreadPool() {
-	// 获取GPU
-	var GPUProviders []int
-	providers, _ := postrs.OpenCLProviders()
-	for _, provider := range providers {
-		if provider.DeviceType == 2 {
-			GPUProviders = append(GPUProviders, int(provider.ID))
-			// init.logger.Info("find ", zap.String("gpu: ", provider.Model))
-		}
-	}
+// func WorkerThreadPool() {
+// 	// 获取GPU
+// 	var GPUProviders []int
+// 	providers, _ := postrs.OpenCLProviders()
+// 	for _, provider := range providers {
+// 		if provider.DeviceType == 2 {
+// 			GPUProviders = append(GPUProviders, int(provider.ID))
+// 			init.logger.Info("find ", zap.String("gpu: ", provider.Model))
+// 		}
+// 	}
 
-	var pool []Worker
-	for _, i := range GPUProviders {
-		pool = append(pool, Worker{provider: i})
-	}
-}
+// 	jobs := make(chan int, numJobs)
+
+// 	var wg sync.WaitGroup
+// 	for _, i := range GPUProviders {
+// 		wg.Add(1)
+// 		go func(workerID int) {
+// 			defer wg.Done()
+// 			WorkerThread()
+// 		}(i)
+// 	}
+
+// 	for
+
+// 	var pool []Worker
+// 	for _, i := range GPUProviders {
+// 		pool = append(pool, Worker{provider: i})
+// 	}
+// }
