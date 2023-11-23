@@ -81,8 +81,10 @@ func parseFlags() {
 }
 
 func processFlags() error {
-	if opts.ProviderID < 0 {
-		return errors.New("-provider flag is required")
+	if !opts.AutoGenProof {
+		if opts.ProviderID < 0 {
+			return errors.New("-provider flag is required")
+		}
 	}
 
 	if commitmentAtxIdHex == "" {
