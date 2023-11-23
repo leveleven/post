@@ -306,35 +306,58 @@ func (init *Initializer) Initialize(ctx context.Context) error {
 	// 	init.logger.Info("initialization: options numUnits isn't match metadata numUnits")
 	// 	return nil
 	// }
-	// 改进
+
+	// ----------------------- 改进 ---------------------------------
 	// 1. 根据p盘大小获取文件数量()
 	// 2. 根据显卡数量拆分文件
 	// 3. 开启并发P盘
 	var wg sync.WaitGroup
 	providers, _ := postrs.OpenCLProviders()
-	jobs := make(chan int, lastFileIndex)
+
+	var GPUProviders []postrs.Provider
 
 	for _, provider := range providers {
 		if provider.DeviceType == 2 {
-			wg.Add(1)
-			go func(workerID int) error {
-				defer wg.Done()
-				init.logger.Info("find ", zap.String("gpu: ", provider.Model))
-				init.opts.ProviderID = workerID
-				fileOffset := uint64(<-jobs) * layout.FileNumLabels
-				fileNumLabels := layout.FileNumLabels
-				if <-jobs == lastFileIndex {
-					fileNumLabels = layout.LastFileNumLabels
-				}
-				if err := init.initFile(ctx, wo, woReference, <-jobs, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
-					return err
-				}
-				return nil
-			}(int(provider.ID))
-			// GPUProviders = append(GPUProviders, int(provider.ID))
-			// init.logger.Info("find ", zap.String("gpu: ", provider.Model))
+			GPUProviders = append(GPUProviders, provider)
+			init.logger.Info("find ", zap.String("gpu: ", provider.Model))
 		}
 	}
+
+	jobs := make(chan int, len(GPUProviders))
+	for _, gpu := range GPUProviders {
+		wg.Add(1)
+		go func(workerID int) error {
+			defer wg.Done()
+			init.logger.Info("find ", zap.String("gpu: ", gpu.Model))
+
+			init.opts.ProviderID = workerID
+			rangewo, err := oracle.New(
+				oracle.WithProviderID(uint(init.opts.ProviderID)),
+				oracle.WithCommitment(init.commitment),
+				oracle.WithVRFDifficulty(difficulty),
+				oracle.WithScryptParams(init.opts.Scrypt),
+				oracle.WithLogger(init.logger),
+			)
+			if err != nil {
+				return err
+			}
+			defer rangewo.Close()
+
+			fileIndex := <-jobs
+			fileOffset := uint64(fileIndex) * layout.FileNumLabels
+			fileNumLabels := layout.FileNumLabels
+
+			if fileIndex == lastFileIndex {
+				fileNumLabels = layout.LastFileNumLabels
+			}
+			if err := init.initFile(ctx, rangewo, woReference, fileIndex, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+				return err
+			}
+			return nil
+		}(int(gpu.ID))
+	}
+
+	// ---------------------- 改进 ----------------------------------
 
 	for i := layout.FirstFileIdx; i <= lastFileIndex; i++ {
 		// fileOffset := uint64(i) * layout.FileNumLabels
@@ -697,52 +720,3 @@ func (init *Initializer) saveMetadata() error {
 func (init *Initializer) loadMetadata() (*shared.PostMetadata, error) {
 	return LoadMetadata(init.opts.DataDir)
 }
-
-// 工作线程池
-// 1. 拥有长度为x的并发
-// 2. 并发满时阻塞
-// type Worker struct {
-// 	provider int
-// 	wg       sync.WaitGroup
-// }
-
-// func (w *Worker) WorkerThread(init *Initializer, ctx context.Context, wo, woReference *oracle.WorkOracle, fileIndex int, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
-// 	defer w.wg.Done()
-
-// 	init.opts.ProviderID = w.provider
-// 	if err := init.initFile(ctx, wo, woReference, fileIndex, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
-
-// func WorkerThreadPool() {
-// 	// 获取GPU
-// 	var GPUProviders []int
-// 	providers, _ := postrs.OpenCLProviders()
-// 	for _, provider := range providers {
-// 		if provider.DeviceType == 2 {
-// 			GPUProviders = append(GPUProviders, int(provider.ID))
-// 			init.logger.Info("find ", zap.String("gpu: ", provider.Model))
-// 		}
-// 	}
-
-// 	jobs := make(chan int, numJobs)
-
-// 	var wg sync.WaitGroup
-// 	for _, i := range GPUProviders {
-// 		wg.Add(1)
-// 		go func(workerID int) {
-// 			defer wg.Done()
-// 			WorkerThread()
-// 		}(i)
-// 	}
-
-// 	for
-
-// 	var pool []Worker
-// 	for _, i := range GPUProviders {
-// 		pool = append(pool, Worker{provider: i})
-// 	}
-// }
