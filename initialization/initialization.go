@@ -311,69 +311,89 @@ func (init *Initializer) Initialize(ctx context.Context) error {
 	// 1. 根据p盘大小获取文件数量()
 	// 2. 根据显卡数量拆分文件
 	// 3. 开启并发P盘
-	var wg sync.WaitGroup
-	providers, _ := postrs.OpenCLProviders()
+	if init.opts.AutoGenProof {
+		var wg sync.WaitGroup
+		providers, _ := postrs.OpenCLProviders()
 
-	var GPUProviders []postrs.Provider
-
-	for _, provider := range providers {
-		if provider.DeviceType == 2 {
-			GPUProviders = append(GPUProviders, provider)
-			init.logger.Info("find ", zap.String("gpu: ", provider.Model))
+		type GPUProvider struct {
+			Provider postrs.Provider
+			// Used     <-chan int
 		}
-	}
+		var GPUProviders []GPUProvider
+		worker := make(chan GPUProvider, len(providers)-1)
+		jobs := make(chan int)
 
-	jobs := make(chan int, len(GPUProviders))
-	for _, gpu := range GPUProviders {
-		wg.Add(1)
-		go func(workerID int) error {
-			defer wg.Done()
-			init.logger.Info("find ", zap.String("gpu: ", gpu.Model))
-
-			init.opts.ProviderID = workerID
-			rangewo, err := oracle.New(
-				oracle.WithProviderID(uint(init.opts.ProviderID)),
-				oracle.WithCommitment(init.commitment),
-				oracle.WithVRFDifficulty(difficulty),
-				oracle.WithScryptParams(init.opts.Scrypt),
-				oracle.WithLogger(init.logger),
-			)
-			if err != nil {
-				return err
+		for _, provider := range providers {
+			if provider.DeviceType == 2 {
+				var gpu_provider GPUProvider
+				gpu_provider.Provider = provider
+				GPUProviders = append(GPUProviders, gpu_provider)
+				init.logger.Info("Find",
+					zap.Uint("ID", provider.ID),
+					zap.String("GPU", provider.Model),
+				)
+				worker <- gpu_provider
 			}
-			defer rangewo.Close()
+		}
 
-			fileIndex := <-jobs
-			fileOffset := uint64(fileIndex) * layout.FileNumLabels
+		for i := layout.FirstFileIdx; i <= lastFileIndex; i++ {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+				gpu := <-worker
+				init.logger.Info("Worker running",
+					zap.Int("Worker id", index),
+					zap.Uint("GPU ID", gpu.Provider.ID),
+					zap.String("GPU", gpu.Provider.Model),
+				)
+				rangewo, err := oracle.New(
+					oracle.WithProviderID(gpu.Provider.ID),
+					oracle.WithCommitment(init.commitment),
+					oracle.WithVRFDifficulty(difficulty),
+					oracle.WithScryptParams(init.opts.Scrypt),
+					oracle.WithLogger(init.logger),
+				)
+				if err != nil {
+					init.logger.Error("Worker oracle error",
+						zap.Int("Worker id", index),
+						zap.Error(err),
+					)
+				}
+				defer rangewo.Close()
+				fileIndex := <-jobs
+				fileOffset := uint64(fileIndex) * layout.FileNumLabels
+				fileNumLabels := layout.FileNumLabels
+
+				if fileIndex == lastFileIndex {
+					fileNumLabels = layout.LastFileNumLabels
+				}
+				if err := init.initFile(ctx, rangewo, woReference, fileIndex, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+					init.logger.Error("Worker initFile error",
+						zap.Int("Worker id", index),
+						zap.Error(err),
+					)
+				}
+				worker <- gpu
+			}(i)
+			jobs <- i
+		}
+		wg.Wait()
+	} else {
+		for i := layout.FirstFileIdx; i <= lastFileIndex; i++ {
+			fileOffset := uint64(i) * layout.FileNumLabels
 			fileNumLabels := layout.FileNumLabels
-
-			if fileIndex == lastFileIndex {
+			if i == lastFileIndex {
 				fileNumLabels = layout.LastFileNumLabels
 			}
-			if err := init.initFile(ctx, rangewo, woReference, fileIndex, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+
+			if err := init.initFile(ctx, wo, woReference, i, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
 				return err
 			}
-			return nil
-		}(int(gpu.ID))
+		}
 	}
-
 	// ---------------------- 改进 ----------------------------------
 
-	for i := layout.FirstFileIdx; i <= lastFileIndex; i++ {
-		// fileOffset := uint64(i) * layout.FileNumLabels
-		// fileNumLabels := layout.FileNumLabels
-		// if i == lastFileIndex {
-		// 	fileNumLabels = layout.LastFileNumLabels
-		// }
-
-		// if err := init.initFile(ctx, wo, woReference, i, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
-		// 	return err
-		// }
-		jobs <- i
-	}
-
 	//  ComputNonce开关为false时，跳过该步骤
-	fmt.Println(init.opts.DisableComputeNonce)
 	if init.opts.DisableComputeNonce {
 		init.logger.Info("initialization: disable computing nonce value")
 		return nil
