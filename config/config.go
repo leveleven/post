@@ -136,6 +136,7 @@ type InitOpts struct {
 	FromFileIdx int
 	// Index of the last file to init (inclusive). Will init to the end of declared space if not provided.
 	ToFileIdx *int
+	IndexID   int
 }
 
 func (o *InitOpts) MaxFileNumLabels() uint64 {
