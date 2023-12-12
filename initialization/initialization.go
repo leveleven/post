@@ -428,6 +428,7 @@ func (init *Initializer) SingleInitialize(ctx context.Context) error {
 	difficulty := init.powDifficultyFunc(numLabels)
 	batchSize := init.opts.ComputeBatchSize
 
+	// rpc方案，这个可以做成池
 	wo, err := oracle.New(
 		oracle.WithProviderID(init.opts.ProviderID),
 		oracle.WithCommitment(init.commitment),

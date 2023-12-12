@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -31,12 +30,9 @@ import (
 // MaxFileSize ?
 // LabelsPerUnit ?
 type InitOption struct {
-	IDHex              string `json:"id"`
-	CommitmentAtxIdHex string `json:"commitmentAtxId"`
-	NumUnits           uint32 `json:"numUnits"`
-	Index              int    `json:"index"`
-	DataDir            string
-	Provider           postrs.Provider
+	Task
+	DataDir  string
+	Provider postrs.Provider
 }
 
 type Provider struct {
@@ -56,7 +52,6 @@ var gpu_providers = make([]Provider, len(providers)-1)
 
 func server() {
 	worker := make(chan postrs.Provider, len(providers)-1)
-	exits_ignal := make(chan os.Signal)
 
 	for _, provider := range providers {
 		if provider.DeviceType == 2 {
@@ -69,28 +64,37 @@ func server() {
 
 	r := gin.Default()
 	r.POST("/worker", func(ctx *gin.Context) {
-		io := &InitOption{}
-		err := ctx.ShouldBind(io)
-		if err != nil {
+		var task Task
+		if err := ctx.BindJSON(task); err != nil {
 			ctx.JSON(500, gin.H{
 				"msg": err.Error(),
 			})
+		}
+
+		io := InitOption{
+			Task: task,
 		}
 		// 进入p盘，返回机器状态
 		io.Provider = <-worker
 		go func() {
 			changeProviderInUse(gpu_providers, io.Provider.ID, true)
 			io.DataDir = filepath.Join(BaseDir, uuid.NewString())
-			server, err := io.Running(worker)
-			if err != nil {
+			if err := io.Running(worker); err != nil {
+				// 更新任务状态，释放provider
 				panic(err)
 			}
-			var t = &Fetch{
-				Fetched: server,
-			}
+
 			// 如何构建文件服务器并在完成传输时关闭文件服务器：
 			// 方案一：在完成init时，与调度进行交互，请求体包含对应ip、plot文件、队列key等信息，传输完成时调度再请求plotnode关闭文件服务
-			t.SeverFile(exits_ignal)
+			// 方案二：一直开启文件端口，完成一个文件发送文件路径到node, 由node发起传输请求传输文件
+			// server, err := io.Running(worker)
+			// if err != nil {
+			// 	panic(err)
+			// }
+			// var t = &Fetch{
+			// 	Fetched: server,
+			// }
+			// t.SeverFile(exits_ignal)
 		}()
 		ctx.JSON(200, gin.H{
 			"status": "running",
@@ -126,18 +130,18 @@ func (t *Fetch) SeverFile(signal chan os.Signal) {
 	}
 }
 
-func (io *InitOption) Running(worker chan postrs.Provider) (*http.Server, error) {
+func (io *InitOption) Running(worker chan postrs.Provider) error {
 	var logLevel zapcore.Level
 	var cfg = config.MainnetConfig()
 	var opts = config.MainnetInitOpts()
 
 	commitmentAtxId, err := hex.DecodeString(io.CommitmentAtxIdHex)
 	if err != nil {
-		return nil, fmt.Errorf("invalid commitmentAtxId: %w", err)
+		return fmt.Errorf("invalid commitmentAtxId: %w", err)
 	}
 	id, err := hex.DecodeString(io.IDHex)
 	if err != nil {
-		return nil, fmt.Errorf("invalid id: %w", err)
+		return fmt.Errorf("invalid id: %w", err)
 	}
 	opts.FromFileIdx = io.Index
 	opts.ToFileIdx = &io.Index
@@ -182,11 +186,11 @@ func (io *InitOption) Running(worker chan postrs.Provider) (*http.Server, error)
 	err = init.SingleInitialize(ctx)
 	switch {
 	case errors.Is(err, shared.ErrInitCompleted):
-		return nil, err
+		return err
 	case errors.Is(err, context.Canceled):
-		return nil, fmt.Errorf("cli: initialization interrupted")
+		return fmt.Errorf("cli: initialization interrupted")
 	case err != nil:
-		return nil, fmt.Errorf("cli: initialization error", err)
+		return fmt.Errorf("cli: initialization error", err)
 	}
 
 	log.Println("cli: initialization completed")
@@ -194,24 +198,7 @@ func (io *InitOption) Running(worker chan postrs.Provider) (*http.Server, error)
 	worker <- io.Provider
 	changeProviderInUse(gpu_providers, io.Provider.ID, false)
 
-	// 完成开启回传端口
-
-	// 发送消息到接收端等待下载
-
-	// 下载完成发送信号到发送端结束文件服务器
-	port := make(chan int)
-	for {
-		randomPort := rand.Intn(100)
-		if checkPort(randomPort) {
-			port <- randomPort
-			break
-		}
-	}
-
-	return &http.Server{
-		Addr:    fmt.Sprintf(":20%s", port),
-		Handler: http.HandlerFunc(io.Fetch),
-	}, nil
+	return nil
 }
 
 func checkPort(port int) bool {

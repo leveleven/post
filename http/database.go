@@ -25,7 +25,7 @@ type WorkerStatus int
 type Task struct {
 	IDHex              string
 	CommitmentAtxIdHex string
-	NumUnits           int
+	NumUnits           uint32
 	Index              int
 	Status             TaskStatus
 	Host               string
@@ -33,6 +33,7 @@ type Task struct {
 }
 
 type Worker struct {
+	UUID          string
 	ProviderID    uint32
 	ProviderModel string
 	Status        WorkerStatus
@@ -42,12 +43,12 @@ type Worker struct {
 
 type TaskModel struct {
 	gorm.Model
-	Task
+	Task `gorm:"embedded"`
 }
 
 type WorkerModel struct {
 	gorm.Model
-	Worker
+	Worker `gorm:"embedded"`
 }
 
 func (ts TaskStatus) String() string {
@@ -82,6 +83,10 @@ func (ws WorkerStatus) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+func (w Worker) getUrl() string {
+	return w.Host + ":" + string(w.Port)
 }
 
 func InitDatabase() *gorm.DB {
