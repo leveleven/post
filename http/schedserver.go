@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,14 @@ type Server struct {
 	db           *gorm.DB
 	PendingTasks Queue
 	Workers      map[string]Worker
+	Fetch        Queue
+}
+
+type File struct {
+	File  string
+	IDHex string
+	Host  string
+	Port  int
 }
 
 func schedServer() {
@@ -78,9 +87,19 @@ func schedServer() {
 		}
 		ctx.JSON(200, gin.H{"message": "created task"})
 	})
+	r.POST("task/fetch", func(ctx *gin.Context) {
+		var request File
+		if err := ctx.BindJSON(&request); err != nil {
+			ctx.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		server.Fetch.Join(request)
+	})
 	// 启动状态管理
+	go server.handleStatus()
 
 	// 启动任务管理
+	go server.handleTask()
 
 	r.Run()
 }
@@ -134,8 +153,11 @@ func (s *Server) handleStatus() {
 }
 
 func (s *Server) handleTask() {
+	var wg sync.WaitGroup
 	// 分发任务
 	go func(ts *Queue) {
+		wg.Add(1)
+		defer wg.Done()
 		for {
 			if ts.Len() != 0 {
 				// 获取任务
@@ -150,7 +172,7 @@ func (s *Server) handleTask() {
 				// 获取worker
 				for _, w := range s.Workers {
 					if w.Status == 0 {
-						if err := distributeTask(jsonData, w.getUrl()); err != nil {
+						if err := handleRequest(jsonData, w.getUrl()); err != nil {
 							fmt.Println("cant distribute task to worker:", w.getUrl(), w.ProviderID)
 							continue
 						}
@@ -162,9 +184,36 @@ func (s *Server) handleTask() {
 			}
 		}
 	}(&s.PendingTasks)
+
+	// 回传任务
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+		for {
+			if s.Fetch.Len() != 0 {
+				f, err := s.Fetch.Pop()
+				if err != nil {
+					return
+				}
+				result := &TaskModel{}
+				if person, ok := f.(File); ok {
+					s.db.Where("IDHex = ?", person.IDHex).First(result)
+				} else {
+					return
+				}
+
+				url := result.Host + ":9090"
+				jsonData, err := json.Marshal(f)
+				if err := handleRequest(jsonData, url); err != nil {
+					fmt.Println("cant resend file to node: ", url, err)
+				}
+			}
+		}
+	}()
+	wg.Wait()
 }
 
-func distributeTask(data []byte, url string) error {
+func handleRequest(data []byte, url string) error {
 	request, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("cant create request:", err)

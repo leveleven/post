@@ -40,12 +40,6 @@ type Provider struct {
 	Use bool
 }
 
-type Fetch struct {
-	Fetched *http.Server
-	Port    int
-	Host    string
-}
-
 var BaseDir = "/data/"
 var providers, _ = postrs.OpenCLProviders()
 var gpu_providers = make([]Provider, len(providers)-1)
@@ -107,6 +101,8 @@ func server() {
 		ctx.JSON(200, gpu_providers)
 	})
 
+	go SeverFile()
+
 	r.Run()
 }
 
@@ -119,15 +115,13 @@ func changeProviderInUse(providers []Provider, provider uint32, use bool) {
 	}
 }
 
-func (t *Fetch) SeverFile(signal chan os.Signal) {
-	ctx := context.Background()
-	t.Fetched.ListenAndServe()
-	select {
-	case <-signal:
-		t.Fetched.Shutdown(ctx)
-	case <-ctx.Done():
-	default:
-	}
+func SeverFile() {
+	http.HandleFunc("/postdata/", Fetch)
+	http.ListenAndServe(":9090", nil)
+}
+
+func Fetch(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, BaseDir)
 }
 
 func (io *InitOption) Running(worker chan postrs.Provider) error {
@@ -208,8 +202,4 @@ func checkPort(port int) bool {
 	}
 	defer listen.Close()
 	return true
-}
-
-func (io *InitOption) Fetch(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, io.DataDir)
 }
