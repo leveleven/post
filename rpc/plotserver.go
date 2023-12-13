@@ -1,45 +1,43 @@
-package server
+package rpc
 
 import (
 	"encoding/hex"
 	"fmt"
 	"log"
 
-	"github.com/gin-gonic/gin"
+	"github.com/spacemeshos/post/config"
+	"github.com/spacemeshos/post/initialization"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-
-	"github.com/spacemeshos/post/initialization"
 )
 
-// 任务信息
-// commitmentAtx
-// indexFile
-// numUnits
-// MaxFileSize ?
-// LabelsPerUnit ?
+type RemotePlotServer struct{}
 
-func server() {
-	r := gin.Default()
-	r.POST("/worker", func(ctx *gin.Context) {
-		obj := struct {
-			CommitmentAtxIdHex string `json:"commitmentAtxIdHex"`
-			IndexFile          int    `json:"indexFile"`
-			NumUnits           int    `json:"numUnits"`
-		}{}
-		// 进入p盘，返回机器状态
-	})
-
-	r.Run()
+type PlotOption struct {
+	IDHex              string
+	CommitmentAtxIdHex string
+	NumUnits           uint32
 }
 
-func runInitialization(id []byte, commitmentAtxIdHex string) error {
-	commitmentAtxId, err := hex.DecodeString(commitmentAtxIdHex)
+func (rps *RemotePlotServer) plot(args *PlotOption, reply *initialization.Initializer) error {
+	var logLevel zapcore.Level
+	var cfg = config.MainnetConfig()
+	var opts = config.MainnetInitOpts()
+
+	commitmentAtxId, err := hex.DecodeString(args.CommitmentAtxIdHex)
 	if err != nil {
 		return fmt.Errorf("invalid commitmentAtxId: %w", err)
 	}
+	id, err := hex.DecodeString(args.IDHex)
+	if err != nil {
+		return fmt.Errorf("invalid id: %w", err)
+	}
+	// opts.FromFileIdx = io.Index
+	// opts.ToFileIdx = &io.Index
+	// opts.NumUnits = io.NumUnits
+	// opts.ProviderID = &io.Provider.ID
+	// opts.DataDir = io.DataDir
 
-	var logLevel zapcore.Level
 	zapCfg := zap.Config{
 		Level:    zap.NewAtomicLevelAt(logLevel),
 		Encoding: "console",
@@ -60,6 +58,7 @@ func runInitialization(id []byte, commitmentAtxIdHex string) error {
 	if err != nil {
 		log.Fatalln("failed to initialize zap logger:", err)
 	}
+
 	init, err := initialization.NewInitializer(
 		initialization.WithConfig(cfg),
 		initialization.WithInitOpts(opts),
@@ -70,4 +69,8 @@ func runInitialization(id []byte, commitmentAtxIdHex string) error {
 	if err != nil {
 		log.Panic(err.Error())
 	}
+
+	reply = init
+
+	return nil
 }

@@ -406,7 +406,7 @@ func (init *Initializer) SingleInitialize(ctx context.Context) error {
 		return err
 	}
 
-	index := init.opts.IndexID
+	index := init.opts.FromFileIdx
 
 	init.logger.Info("initialization started",
 		zap.String("datadir", init.opts.DataDir),
@@ -661,6 +661,7 @@ func (init *Initializer) initFile(ctx context.Context, wo, woReference *oracle.W
 				Actual:     res.Output[(batchSize-1)*postrs.LabelLength:],
 			}
 		}
+		// 这里返回res到存储机服务器，由存储机进行Nonce判断
 
 		if res.Nonce != nil {
 			candidate := res.Output[(*res.Nonce-startPosition)*postrs.LabelLength:]
