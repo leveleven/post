@@ -52,6 +52,7 @@ func CPUProviderID() uint32 {
 type option struct {
 	nodeId          []byte
 	commitmentAtxId []byte
+	index           int
 
 	commitment []byte
 
@@ -395,84 +396,6 @@ func (init *Initializer) Initialize(ctx context.Context) error {
 	return fmt.Errorf("no nonce found")
 }
 
-func (init *Initializer) SingleInitialize(ctx context.Context) error {
-	if !init.mtx.TryLock() {
-		return ErrAlreadyInitializing
-	}
-	defer init.mtx.Unlock()
-
-	layout, err := deriveFilesLayout(init.cfg, init.opts)
-	if err != nil {
-		return err
-	}
-
-	index := init.opts.FromFileIdx
-
-	init.logger.Info("initialization started",
-		zap.String("datadir", init.opts.DataDir),
-		zap.Uint32("numUnits", init.opts.NumUnits),
-		zap.Uint64("maxFileSize", init.opts.MaxFileSize),
-		zap.Uint64("labelsPerUnit", init.cfg.LabelsPerUnit),
-	)
-
-	init.logger.Info("initialization file layout",
-		zap.Uint64("labelsPerFile", layout.FileNumLabels),
-		zap.Uint64("labelsLastFile", layout.LastFileNumLabels),
-		zap.Int("FileIndex", index),
-	)
-	if err := removeRedundantFiles(init.cfg, init.opts, init.logger); err != nil {
-		return err
-	}
-
-	numLabels := uint64(init.opts.NumUnits) * init.cfg.LabelsPerUnit
-	difficulty := init.powDifficultyFunc(numLabels)
-	batchSize := init.opts.ComputeBatchSize
-
-	// rpc方案，这个可以做成池
-	wo, err := oracle.New(
-		oracle.WithProviderID(init.opts.ProviderID),
-		oracle.WithCommitment(init.commitment),
-		oracle.WithVRFDifficulty(difficulty),
-		oracle.WithScryptParams(init.opts.Scrypt),
-		oracle.WithLogger(init.logger),
-	)
-	if err != nil {
-		return err
-	}
-	defer wo.Close()
-
-	woReference := init.referenceOracle
-	if woReference == nil {
-		cpuProvider := CPUProviderID()
-		woReference, err = oracle.New(
-			oracle.WithProviderID(&cpuProvider),
-			oracle.WithCommitment(init.commitment),
-			oracle.WithVRFDifficulty(difficulty),
-			oracle.WithScryptParams(init.opts.Scrypt),
-			oracle.WithLogger(init.logger),
-		)
-		if err != nil {
-			return err
-		}
-		defer woReference.Close()
-	}
-
-	fileOffset := uint64(index) * layout.FileNumLabels
-	fileNumLabels := layout.FileNumLabels
-	if err := init.initFile(ctx, wo, woReference, index, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
-		return err
-	}
-
-	if init.nonce.Load() != nil {
-		init.logger.Info("initialization: completed, found nonce", zap.Uint64("nonce", *init.nonce.Load()))
-		return nil
-	}
-
-	// continue searching for a nonce
-	// defer init.saveMetadata()
-	return nil
-}
-
 func removeRedundantFiles(cfg config.Config, opts config.InitOpts, logger *zap.Logger) error {
 	// Go over all postdata_N.bin files in the data directory and remove the ones that are not needed.
 	// The files with indices from 0 to init.opts.TotalFiles(init.cfg.LabelsPerUnit) - 1 are preserved.
@@ -661,7 +584,6 @@ func (init *Initializer) initFile(ctx context.Context, wo, woReference *oracle.W
 				Actual:     res.Output[(batchSize-1)*postrs.LabelLength:],
 			}
 		}
-		// 这里返回res到存储机服务器，由存储机进行Nonce判断
 
 		if res.Nonce != nil {
 			candidate := res.Output[(*res.Nonce-startPosition)*postrs.LabelLength:]

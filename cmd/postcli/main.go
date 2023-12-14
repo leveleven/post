@@ -54,6 +54,7 @@ var (
 	cfg  = config.MainnetConfig()
 	opts = config.MainnetInitOpts()
 
+	plotserver     bool
 	searchForNonce bool
 	printProviders bool
 	printNumFiles  bool
@@ -81,6 +82,7 @@ func parseFlags() {
 
 	flag.TextVar(&logLevel, "logLevel", zapcore.InfoLevel, "log level (debug, info, warn, error, dpanic, panic, fatal)")
 
+	flag.BoolVar(&plotserver, "plotServer", false, "Use rpc model plot file")
 	flag.BoolVar(&searchForNonce, "searchForNonce", false, "search for VRF nonce in already initialized files")
 	flag.BoolVar(&printProviders, "printProviders", false, "print the list of compute providers")
 	flag.BoolVar(&printNumFiles, "printNumFiles", false, "print the total number of files that would be initialized")
