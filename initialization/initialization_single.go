@@ -2,7 +2,6 @@ package initialization
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -12,6 +11,8 @@ import (
 	"github.com/spacemeshos/post/oracle"
 	"github.com/spacemeshos/post/shared"
 	"go.uber.org/zap"
+
+	pb "github.com/spacemeshos/post/rpc/proto"
 )
 
 // Initializer is responsible for initializing a new PoST commitment.
@@ -38,7 +39,9 @@ type InitializerSingle struct {
 	referenceOracle   *oracle.WorkOracle
 	powDifficultyFunc func(uint64) []byte
 
-	result chan oracle.WorkOracleResult
+	result     chan oracle.WorkOracleResult
+	data       chan []byte
+	data_nonce chan *uint64
 }
 
 func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
@@ -68,14 +71,12 @@ func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
 		logger:            options.logger,
 		powDifficultyFunc: options.powDifficultyFunc,
 		referenceOracle:   options.referenceOracle,
-
-		result: make(chan oracle.WorkOracleResult),
 	}
 
 	return init, nil
 }
 
-func (init *InitializerSingle) SingleInitialize(ctx context.Context) error {
+func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer) error {
 	if !init.mtx.TryLock() {
 		return ErrAlreadyInitializing
 	}
@@ -122,7 +123,7 @@ func (init *InitializerSingle) SingleInitialize(ctx context.Context) error {
 		cpuProvider := CPUProviderID()
 		woReference, err = oracle.New(
 			oracle.WithProviderID(&cpuProvider),
-			oracle.WithCommitment(init.commitment),
+			oracle.WithCommitment(init.commitmentAtxId),
 			oracle.WithVRFDifficulty(difficulty),
 			oracle.WithScryptParams(init.opts.Scrypt),
 			oracle.WithLogger(init.logger),
@@ -135,14 +136,16 @@ func (init *InitializerSingle) SingleInitialize(ctx context.Context) error {
 
 	fileOffset := uint64(index) * layout.FileNumLabels
 	fileNumLabels := layout.FileNumLabels
-	if err := init.initSingleFile(ctx, wo, woReference, index, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
+	if err := init.initSingleFile(stream, wo, woReference, index, batchSize, fileOffset, fileNumLabels, difficulty); err != nil {
 		return err
 	}
+
+	stream.Context().Done()
 
 	return nil
 }
 
-func (init *InitializerSingle) initSingleFile(ctx context.Context, wo, woReference *oracle.WorkOracle, fileIndex int, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
+func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, wo, woReference *oracle.WorkOracle, fileIndex int, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
 	numLabelsWritten := uint64(0)
 
 	fields := []zap.Field{
@@ -189,10 +192,18 @@ func (init *InitializerSingle) initSingleFile(ctx context.Context, wo, woReferen
 			}
 		}
 		// 这里返回res到存储机服务器，由存储机进行Nonce判断
-		init.result <- res
+		result := &pb.StreamResponse{
+			Output:          res.Output,
+			Nonce:           uint64(*res.Nonce),
+			StartPosition:   startPosition,
+			FileOffset:      fileOffset,
+			CurrentPosition: currentPosition,
+		}
+		stream.Send(result)
+		// init.data <- res.Output
+		// init.data_nonce <- res.Nonce
 	}
 
-	<-ctx.Done()
 	return nil
 }
 

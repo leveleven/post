@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package rpc;
+
+option go_package = "/proto";
+
+service PlotService {
+    rpc Plot (stream StreamRequest) returns (stream StreamResponse);
+}
+
+message StreamRequest {
+    string idHex              = 1;
+    string commitmentAtxIdHex = 2;
+    uint32 numUnits           = 3;
+    int64  index              = 4;
+}
+
+message StreamResponse {
+    bytes  output          = 1;
+    uint64 nonce           = 2;
+    uint64 startPosition   = 3;
+    // uint64 fileOffset      = 4;
+    // uint64 currentPosition = 5;
+}

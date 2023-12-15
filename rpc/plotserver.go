@@ -1,30 +1,27 @@
 package rpc
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
-	"net/rpc"
 
 	"github.com/spacemeshos/post/config"
 	"github.com/spacemeshos/post/initialization"
 	"github.com/spacemeshos/post/internal/postrs"
+	pb "github.com/spacemeshos/post/rpc/proto"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc"
 )
 
-type RemotePlotServer struct {
-	Providers []Provider
-}
+type PlotServiceServer struct{}
 
 type PlotOption struct {
 	IDHex              string
 	CommitmentAtxIdHex string
 	NumUnits           uint32
 	Index              int
-	ctx                context.Context
 }
 
 type Provider struct {
@@ -32,18 +29,39 @@ type Provider struct {
 	used bool
 }
 
-func (rps *RemotePlotServer) freeProviderID() *uint32 {
-	for _, provider := range rps.Providers {
+type Providers struct {
+	Providers []Provider
+}
+
+func getProviders() []Provider {
+	var providers, _ = postrs.OpenCLProviders()
+	var gpu_providers = make([]Provider, len(providers)-1)
+	for _, provider := range providers {
+		if provider.DeviceType == 2 {
+			var gpu_provider Provider
+			gpu_provider.used = false
+			gpu_providers = append(gpu_providers, gpu_provider)
+		}
+	}
+	return gpu_providers
+}
+
+var providers = &Providers{
+	Providers: getProviders(),
+}
+
+func (p *Providers) freeProviderID() *uint32 {
+	for _, provider := range p.Providers {
 		if !provider.used {
-			rps.switchUsed(provider.ID)
+			p.switchUsed(provider.ID)
 			return &provider.ID
 		}
 	}
 	return nil
 }
 
-func (rps *RemotePlotServer) switchUsed(id uint32) {
-	for _, provider := range rps.Providers {
+func (p *Providers) switchUsed(id uint32) {
+	for _, provider := range p.Providers {
 		if provider.ID == id {
 			provider.used = !provider.used
 			break
@@ -51,21 +69,21 @@ func (rps *RemotePlotServer) switchUsed(id uint32) {
 	}
 }
 
-func (rps *RemotePlotServer) plot(args *PlotOption, reply *initialization.InitializerSingle) error {
+func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 	var logLevel zapcore.Level
 	var cfg = config.MainnetConfig()
 	var opts = config.MainnetInitOpts()
 
-	commitmentAtxId, err := hex.DecodeString(args.CommitmentAtxIdHex)
+	request, err := stream.Recv()
+	if err != nil {
+		return fmt.Errorf("rpc recv fail: %w", err)
+	}
+	commitmentAtxId, err := hex.DecodeString(request.CommitmentAtxIdHex)
 	if err != nil {
 		return fmt.Errorf("invalid commitmentAtxId: %w", err)
 	}
-	id, err := hex.DecodeString(args.IDHex)
-	if err != nil {
-		return fmt.Errorf("invalid id: %w", err)
-	}
-
-	opts.ProviderID = rps.freeProviderID()
+	id, err := hex.DecodeString(request.IdHex)
+	opts.ProviderID = providers.freeProviderID()
 	if opts.ProviderID == nil {
 		return fmt.Errorf("no enough gpu to use.")
 	}
@@ -97,49 +115,31 @@ func (rps *RemotePlotServer) plot(args *PlotOption, reply *initialization.Initia
 		initialization.WithNodeId(id),
 		initialization.WithCommitmentAtxId(commitmentAtxId),
 		initialization.WithLogger(logger),
-		initialization.WithIndex(args.Index),
+		initialization.WithIndex(int(request.Index)),
 	)
 	if err != nil {
 		log.Panic(err.Error())
 	}
 
-	if err := init.SingleInitialize(args.ctx); err != nil {
+	if err := init.SingleInitialize(stream); err != nil {
 		log.Panic(err)
 	}
 
-	defer rps.switchUsed(*opts.ProviderID)
+	defer providers.switchUsed(*opts.ProviderID)
 	return nil
 }
 
 func PlotServer() {
-	var providers, _ = postrs.OpenCLProviders()
-	var gpu_providers = make([]Provider, len(providers)-1)
-	for _, provider := range providers {
-		if provider.DeviceType == 2 {
-			var gpu_provider Provider
-			gpu_provider.used = false
-			gpu_providers = append(gpu_providers, gpu_provider)
-		}
-	}
-
-	remote := &RemotePlotServer{
-		gpu_providers,
-	}
-
-	rpc.Register(remote)
 	listener, err := net.Listen("tcp", ":1234")
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	defer listener.Close()
 
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection:", err)
-			continue
-		}
-		go rpc.ServeConn(conn)
+	ps := grpc.NewServer()
+	pb.RegisterPlotServiceServer(ps, &PlotServiceServer{})
+	fmt.Println("Server is listening on port 1234...")
+	if err := ps.Serve(listener); err != nil {
+		fmt.Printf("failed to serve: %v", err)
 	}
 }
