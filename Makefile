@@ -84,6 +84,10 @@ postcli: get-postrs-lib
 	go build -o $(BIN_DIR)$@$(EXE) ./cmd/postcli
 .PHONY: postcli
 
+plotserver: get-postrs-lib
+	go build -o $(BIN_DIR)$@$(EXE) ./cmd/plotserver
+.PHONY: plotserver
+
 bench:
 	@$(ULIMIT) CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" go test -benchmem -run='^$$' -bench 'BenchmarkVerifying|BenchmarkProving' github.com/spacemeshos/post/proving github.com/spacemeshos/post/verifying
 .PHONY: bench

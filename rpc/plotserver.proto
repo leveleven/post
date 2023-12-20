@@ -9,8 +9,8 @@ service PlotService {
 }
 
 message StreamRequest {
-    string idHex              = 1;
-    string commitmentAtxIdHex = 2;
+    bytes  id                 = 1;
+    bytes  commitmentAtxId    = 2;
     uint32 numUnits           = 3;
     int64  index              = 4;
 }

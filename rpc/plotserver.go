@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -13,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type PlotServiceServer struct{}
@@ -78,14 +78,11 @@ func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 	if err != nil {
 		return fmt.Errorf("rpc recv fail: %w", err)
 	}
-	commitmentAtxId, err := hex.DecodeString(request.CommitmentAtxIdHex)
-	if err != nil {
-		return fmt.Errorf("invalid commitmentAtxId: %w", err)
-	}
-	id, err := hex.DecodeString(request.IdHex)
+
 	opts.ProviderID = providers.freeProviderID()
 	if opts.ProviderID == nil {
-		return fmt.Errorf("no enough gpu to use.")
+		fmt.Printf("no enough gpu to use.")
+		return nil
 	}
 
 	zapCfg := zap.Config{
@@ -112,8 +109,8 @@ func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 	init, err := initialization.NewSingleInitializer(
 		initialization.WithConfig(cfg),
 		initialization.WithInitOpts(opts),
-		initialization.WithNodeId(id),
-		initialization.WithCommitmentAtxId(commitmentAtxId),
+		initialization.WithNodeId(request.Id),
+		initialization.WithCommitmentAtxId(request.CommitmentAtxId),
 		initialization.WithLogger(logger),
 		initialization.WithIndex(int(request.Index)),
 	)
@@ -137,6 +134,7 @@ func PlotServer() {
 	}
 
 	ps := grpc.NewServer()
+	reflection.Register(ps)
 	pb.RegisterPlotServiceServer(ps, &PlotServiceServer{})
 	fmt.Println("Server is listening on port 1234...")
 	if err := ps.Serve(listener); err != nil {
