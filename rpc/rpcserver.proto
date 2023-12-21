@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package rpc;
+
+option go_package = "/proto";
+
+service ScheduleService {
+    rpc addProvider (stream Provider) returns (stream UUID);
+    rpc selectProvider (stream UUID) returns (stream Provider);
+    rpc switchProvider (stream UUID) returns (stream Provider);
+    rpc getFreeProvider (stream empty) returns (stream Provider);
+}
+
+service PlotService {
+    rpc Plot (stream StreamRequest) returns (stream StreamResponse);
+}
+
+message StreamRequest {
+    bytes  id                 = 1;
+    bytes  commitmentAtxId    = 2;
+    uint32 numUnits           = 3;
+    int64  index              = 4;
+    uint32 provider           = 5;
+}
+
+message StreamResponse {
+    bytes  output          = 1;
+    uint64 nonce           = 2;
+    uint64 startPosition   = 3;
+    // uint64 fileOffset      = 4;
+    // uint64 currentPosition = 5;
+}
+
+message Provider {
+    // Provider provide = 1;
+    uint32   ID          = 1;
+    string   Model       = 2;
+    int32    DeviceType  = 3;
+    string   UUID        = 4;
+	string   Host        = 5; 
+	int32    Port        = 6;
+	bool     inUse       = 7;
+}
+
+message UUID {
+    string UUID = 1;
+}
+
+message empty {}

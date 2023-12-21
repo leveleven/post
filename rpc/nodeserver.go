@@ -39,6 +39,7 @@ type Node struct {
 	nonceValue   atomic.Pointer[[]byte]
 	nonce        atomic.Pointer[uint64]
 	lastPosition atomic.Pointer[uint64]
+	Provider     uint32
 
 	logger *zap.Logger
 	opts   *config.InitOpts
@@ -270,6 +271,7 @@ func (n *Node) remotePlot(index int, fileStatus map[int]StatusType, connect *grp
 		CommitmentAtxId: n.CommitmentAtxId,
 		NumUnits:        n.NumUnits.value,
 		Index:           int64(index),
+		Provider:        n.Provider,
 	}
 
 	stream, err := client.Plot(context.Background(), nil)

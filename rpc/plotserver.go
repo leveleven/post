@@ -1,13 +1,13 @@
 package rpc
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 
 	"github.com/spacemeshos/post/config"
 	"github.com/spacemeshos/post/initialization"
-	"github.com/spacemeshos/post/internal/postrs"
 	pb "github.com/spacemeshos/post/rpc/proto"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -15,59 +15,61 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-type PlotServiceServer struct{}
-
-type PlotOption struct {
-	IDHex              string
-	CommitmentAtxIdHex string
-	NumUnits           uint32
-	Index              int
+type PlotServiceServer struct {
+	*pb.UnimplementedPlotServiceServer
 }
 
-type Provider struct {
-	postrs.Provider
-	used bool
-}
+// type PlotOption struct {
+// 	IDHex              string
+// 	CommitmentAtxIdHex string
+// 	NumUnits           uint32
+// 	Index              int
+// }
 
-type Providers struct {
-	Providers []Provider
-}
+// type Provider struct {
+// 	postrs.Provider
+// 	used bool
+// }
 
-func getProviders() []Provider {
-	var providers, _ = postrs.OpenCLProviders()
-	var gpu_providers = make([]Provider, len(providers)-1)
-	for _, provider := range providers {
-		if provider.DeviceType == 2 {
-			var gpu_provider Provider
-			gpu_provider.used = false
-			gpu_providers = append(gpu_providers, gpu_provider)
-		}
-	}
-	return gpu_providers
-}
+// type Providers struct {
+// 	Providers []Provider
+// }
 
-var providers = &Providers{
-	Providers: getProviders(),
-}
+// func getProviders() []Provider {
+// 	var providers, _ = postrs.OpenCLProviders()
+// 	var gpu_providers = make([]Provider, len(providers)-1)
+// 	for _, provider := range providers {
+// 		if provider.DeviceType == 2 {
+// 			var gpu_provider Provider
+// 			gpu_provider.used = false
+// 			gpu_providers = append(gpu_providers, gpu_provider)
+// 		}
+// 	}
+// 	return gpu_providers
+// }
 
-func (p *Providers) freeProviderID() *uint32 {
-	for _, provider := range p.Providers {
-		if !provider.used {
-			p.switchUsed(provider.ID)
-			return &provider.ID
-		}
-	}
-	return nil
-}
+// var providers = &Providers{
+// 	Providers: getProviders(),
+// }
 
-func (p *Providers) switchUsed(id uint32) {
-	for _, provider := range p.Providers {
-		if provider.ID == id {
-			provider.used = !provider.used
-			break
-		}
-	}
-}
+// func (p *Providers) freeProviderID() *uint32 {
+// 	for _, provider := range p.Providers {
+// 		if !provider.used {
+// 			p.switchUsed(provider.ID)
+// 			return &provider.ID
+// 		}
+// 	}
+// 	return nil
+// }
+
+// func (p *Providers) switchUsed(id uint32) {
+// 	for _, provider := range p.Providers {
+// 		if provider.ID == id {
+// 			provider.used = !provider.used
+// 			break
+// 		}
+// 	}
+// }
 
 func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 	var logLevel zapcore.Level
@@ -79,7 +81,7 @@ func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 		return fmt.Errorf("rpc recv fail: %w", err)
 	}
 
-	opts.ProviderID = providers.freeProviderID()
+	opts.ProviderID = &request.Provider
 	if opts.ProviderID == nil {
 		fmt.Printf("no enough gpu to use.")
 		return nil
@@ -122,8 +124,23 @@ func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 		log.Panic(err)
 	}
 
-	defer providers.switchUsed(*opts.ProviderID)
+	// defer providers.switchUsed(*opts.ProviderID)
 	return nil
+}
+
+func submitPlot() {
+	connect, err := grpc.Dial("10.100.85.0:2345")
+	if err != nil {
+		log.Fatalln("Error connecting to server:", err)
+		return
+	}
+	defer connect.Close()
+	client := pb.NewScheduleServiceClient(connect)
+	stream, err := client.AddProvider(context.Background(), nil)
+	if err != nil {
+		log.Fatalf("failed to open stream: %v", err)
+	}
+	stream.Send(&pb.Provider{})
 }
 
 func PlotServer() {
