@@ -6,73 +6,53 @@ import (
 	"log"
 	"net"
 
+	"github.com/google/uuid"
 	"github.com/spacemeshos/post/config"
 	"github.com/spacemeshos/post/initialization"
+	"github.com/spacemeshos/post/internal/postrs"
 	pb "github.com/spacemeshos/post/rpc/proto"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 )
 
-type PlotServiceServer struct {
+type PlotServer struct {
+	Host     string
+	Port     string
+	Schedule string
+
+	Logger *zap.Logger
+
 	*pb.UnimplementedPlotServiceServer
 }
 
-// type PlotOption struct {
-// 	IDHex              string
-// 	CommitmentAtxIdHex string
-// 	NumUnits           uint32
-// 	Index              int
-// }
+type GPUProvider struct {
+	ID    uint32
+	Model string
+	UUID  string
+}
 
-// type Provider struct {
-// 	postrs.Provider
-// 	used bool
-// }
+func getProviders() ([]GPUProvider, error) {
+	var providers, err = postrs.OpenCLProviders()
+	if err != nil {
+		return nil, err
+	}
+	var gpu_providers = make([]GPUProvider, 0)
+	for _, provider := range providers {
+		if provider.DeviceType.String() == "GPU" {
+			gpu_provider := GPUProvider{
+				ID:    provider.ID,
+				Model: provider.Model,
+				UUID:  uuid.New().String(),
+			}
+			gpu_providers = append(gpu_providers, gpu_provider)
+		}
+	}
+	return gpu_providers, nil
+}
 
-// type Providers struct {
-// 	Providers []Provider
-// }
-
-// func getProviders() []Provider {
-// 	var providers, _ = postrs.OpenCLProviders()
-// 	var gpu_providers = make([]Provider, len(providers)-1)
-// 	for _, provider := range providers {
-// 		if provider.DeviceType == 2 {
-// 			var gpu_provider Provider
-// 			gpu_provider.used = false
-// 			gpu_providers = append(gpu_providers, gpu_provider)
-// 		}
-// 	}
-// 	return gpu_providers
-// }
-
-// var providers = &Providers{
-// 	Providers: getProviders(),
-// }
-
-// func (p *Providers) freeProviderID() *uint32 {
-// 	for _, provider := range p.Providers {
-// 		if !provider.used {
-// 			p.switchUsed(provider.ID)
-// 			return &provider.ID
-// 		}
-// 	}
-// 	return nil
-// }
-
-// func (p *Providers) switchUsed(id uint32) {
-// 	for _, provider := range p.Providers {
-// 		if provider.ID == id {
-// 			provider.used = !provider.used
-// 			break
-// 		}
-// 	}
-// }
-
-func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
-	var logLevel zapcore.Level
+func (ps *PlotServer) Plot(stream pb.PlotService_PlotServer) error {
 	var cfg = config.MainnetConfig()
 	var opts = config.MainnetInitOpts()
 
@@ -87,33 +67,13 @@ func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 		return nil
 	}
 
-	zapCfg := zap.Config{
-		Level:    zap.NewAtomicLevelAt(logLevel),
-		Encoding: "console",
-		EncoderConfig: zapcore.EncoderConfig{
-			TimeKey:        "T",
-			LevelKey:       "L",
-			NameKey:        "N",
-			MessageKey:     "M",
-			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.CapitalLevelEncoder,
-			EncodeTime:     zapcore.ISO8601TimeEncoder,
-			EncodeDuration: zapcore.StringDurationEncoder,
-		},
-		OutputPaths:      []string{"stdout"},
-		ErrorOutputPaths: []string{"stderr"},
-	}
-	logger, err := zapCfg.Build()
-	if err != nil {
-		log.Fatalln("failed to initialize zap logger:", err)
-	}
-
+	ps.Logger.Info("Using provider ", zap.Uint32("ID", *opts.ProviderID))
 	init, err := initialization.NewSingleInitializer(
 		initialization.WithConfig(cfg),
 		initialization.WithInitOpts(opts),
 		initialization.WithNodeId(request.Id),
 		initialization.WithCommitmentAtxId(request.CommitmentAtxId),
-		initialization.WithLogger(logger),
+		initialization.WithLogger(ps.Logger),
 		initialization.WithIndex(int(request.Index)),
 	)
 	if err != nil {
@@ -124,37 +84,66 @@ func (rps *PlotServiceServer) Plot(stream pb.PlotService_PlotServer) error {
 		log.Panic(err)
 	}
 
-	// defer providers.switchUsed(*opts.ProviderID)
 	return nil
 }
 
-func submitPlot() {
-	connect, err := grpc.Dial("10.100.85.0:2345")
+func (ps *PlotServer) submitPlot() error {
+	// tls
+	// creds, err := credentials.NewClientTLSFromFile("server.crt", "go-grpc-tutorial")
+	connect, err := grpc.Dial(ps.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalln("Error connecting to server:", err)
-		return
+		return fmt.Errorf("failed connecting to server:", err)
 	}
 	defer connect.Close()
 	client := pb.NewScheduleServiceClient(connect)
-	stream, err := client.AddProvider(context.Background(), nil)
+
+	gpu_provider, err := getProviders()
 	if err != nil {
-		log.Fatalf("failed to open stream: %v", err)
+		return err
 	}
-	stream.Send(&pb.Provider{})
+
+	if len(gpu_provider) == 0 {
+		return fmt.Errorf("no found any gpu device")
+	}
+	for _, provider := range gpu_provider {
+		uuid, err := client.AddProvider(
+			context.Background(),
+			&pb.Provider{
+				ID:    provider.ID,
+				Model: provider.Model,
+				UUID:  provider.UUID,
+				Host:  ps.Host,
+				Port:  ps.Port,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to call method:", err)
+		}
+		ps.Logger.Info("submit plot node",
+			zap.String("UUID", uuid.UUID),
+			zap.String("model", provider.Model),
+		)
+	}
+	// 获取本机ip 端口
+	return nil
 }
 
-func PlotServer() {
-	listener, err := net.Listen("tcp", ":1234")
-	if err != nil {
-		fmt.Println(err)
-		return
+func (ps *PlotServer) RemotePlotServer() error {
+	if err := ps.submitPlot(); err != nil {
+		return fmt.Errorf("failed to submit plot node:", err.Error())
 	}
 
-	ps := grpc.NewServer()
-	reflection.Register(ps)
-	pb.RegisterPlotServiceServer(ps, &PlotServiceServer{})
-	fmt.Println("Server is listening on port 1234...")
-	if err := ps.Serve(listener); err != nil {
-		fmt.Printf("failed to serve: %v", err)
+	listener, err := net.Listen("tcp", ps.Host+":"+ps.Port)
+	if err != nil {
+		return fmt.Errorf("failed to listen", ps.Host+":"+ps.Port, err)
 	}
+
+	rps := grpc.NewServer()
+	reflection.Register(rps)
+	pb.RegisterPlotServiceServer(rps, ps)
+	fmt.Println("Server is listening on " + ps.Host + ":" + ps.Port)
+	if err := rps.Serve(listener); err != nil {
+		return fmt.Errorf("failed to serve:", err)
+	}
+	return nil
 }

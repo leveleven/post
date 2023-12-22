@@ -23,16 +23,18 @@ const (
 	ScheduleService_SelectProvider_FullMethodName  = "/rpc.ScheduleService/selectProvider"
 	ScheduleService_SwitchProvider_FullMethodName  = "/rpc.ScheduleService/switchProvider"
 	ScheduleService_GetFreeProvider_FullMethodName = "/rpc.ScheduleService/getFreeProvider"
+	ScheduleService_ShowProviders_FullMethodName   = "/rpc.ScheduleService/showProviders"
 )
 
 // ScheduleServiceClient is the client API for ScheduleService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ScheduleServiceClient interface {
-	AddProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_AddProviderClient, error)
-	SelectProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_SelectProviderClient, error)
-	SwitchProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_SwitchProviderClient, error)
-	GetFreeProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_GetFreeProviderClient, error)
+	AddProvider(ctx context.Context, in *Provider, opts ...grpc.CallOption) (*UUID, error)
+	SelectProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error)
+	SwitchProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error)
+	GetFreeProvider(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Provider, error)
+	ShowProviders(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Providers, error)
 }
 
 type scheduleServiceClient struct {
@@ -43,138 +45,60 @@ func NewScheduleServiceClient(cc grpc.ClientConnInterface) ScheduleServiceClient
 	return &scheduleServiceClient{cc}
 }
 
-func (c *scheduleServiceClient) AddProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_AddProviderClient, error) {
-	stream, err := c.cc.NewStream(ctx, &ScheduleService_ServiceDesc.Streams[0], ScheduleService_AddProvider_FullMethodName, opts...)
+func (c *scheduleServiceClient) AddProvider(ctx context.Context, in *Provider, opts ...grpc.CallOption) (*UUID, error) {
+	out := new(UUID)
+	err := c.cc.Invoke(ctx, ScheduleService_AddProvider_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &scheduleServiceAddProviderClient{stream}
-	return x, nil
+	return out, nil
 }
 
-type ScheduleService_AddProviderClient interface {
-	Send(*Provider) error
-	Recv() (*UUID, error)
-	grpc.ClientStream
-}
-
-type scheduleServiceAddProviderClient struct {
-	grpc.ClientStream
-}
-
-func (x *scheduleServiceAddProviderClient) Send(m *Provider) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *scheduleServiceAddProviderClient) Recv() (*UUID, error) {
-	m := new(UUID)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *scheduleServiceClient) SelectProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_SelectProviderClient, error) {
-	stream, err := c.cc.NewStream(ctx, &ScheduleService_ServiceDesc.Streams[1], ScheduleService_SelectProvider_FullMethodName, opts...)
+func (c *scheduleServiceClient) SelectProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error) {
+	out := new(Provider)
+	err := c.cc.Invoke(ctx, ScheduleService_SelectProvider_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &scheduleServiceSelectProviderClient{stream}
-	return x, nil
+	return out, nil
 }
 
-type ScheduleService_SelectProviderClient interface {
-	Send(*UUID) error
-	Recv() (*Provider, error)
-	grpc.ClientStream
-}
-
-type scheduleServiceSelectProviderClient struct {
-	grpc.ClientStream
-}
-
-func (x *scheduleServiceSelectProviderClient) Send(m *UUID) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *scheduleServiceSelectProviderClient) Recv() (*Provider, error) {
-	m := new(Provider)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *scheduleServiceClient) SwitchProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_SwitchProviderClient, error) {
-	stream, err := c.cc.NewStream(ctx, &ScheduleService_ServiceDesc.Streams[2], ScheduleService_SwitchProvider_FullMethodName, opts...)
+func (c *scheduleServiceClient) SwitchProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error) {
+	out := new(Provider)
+	err := c.cc.Invoke(ctx, ScheduleService_SwitchProvider_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &scheduleServiceSwitchProviderClient{stream}
-	return x, nil
+	return out, nil
 }
 
-type ScheduleService_SwitchProviderClient interface {
-	Send(*UUID) error
-	Recv() (*Provider, error)
-	grpc.ClientStream
-}
-
-type scheduleServiceSwitchProviderClient struct {
-	grpc.ClientStream
-}
-
-func (x *scheduleServiceSwitchProviderClient) Send(m *UUID) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *scheduleServiceSwitchProviderClient) Recv() (*Provider, error) {
-	m := new(Provider)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *scheduleServiceClient) GetFreeProvider(ctx context.Context, opts ...grpc.CallOption) (ScheduleService_GetFreeProviderClient, error) {
-	stream, err := c.cc.NewStream(ctx, &ScheduleService_ServiceDesc.Streams[3], ScheduleService_GetFreeProvider_FullMethodName, opts...)
+func (c *scheduleServiceClient) GetFreeProvider(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Provider, error) {
+	out := new(Provider)
+	err := c.cc.Invoke(ctx, ScheduleService_GetFreeProvider_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &scheduleServiceGetFreeProviderClient{stream}
-	return x, nil
+	return out, nil
 }
 
-type ScheduleService_GetFreeProviderClient interface {
-	Send(*Empty) error
-	Recv() (*Provider, error)
-	grpc.ClientStream
-}
-
-type scheduleServiceGetFreeProviderClient struct {
-	grpc.ClientStream
-}
-
-func (x *scheduleServiceGetFreeProviderClient) Send(m *Empty) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *scheduleServiceGetFreeProviderClient) Recv() (*Provider, error) {
-	m := new(Provider)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
+func (c *scheduleServiceClient) ShowProviders(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Providers, error) {
+	out := new(Providers)
+	err := c.cc.Invoke(ctx, ScheduleService_ShowProviders_FullMethodName, in, out, opts...)
+	if err != nil {
 		return nil, err
 	}
-	return m, nil
+	return out, nil
 }
 
 // ScheduleServiceServer is the server API for ScheduleService service.
 // All implementations must embed UnimplementedScheduleServiceServer
 // for forward compatibility
 type ScheduleServiceServer interface {
-	AddProvider(ScheduleService_AddProviderServer) error
-	SelectProvider(ScheduleService_SelectProviderServer) error
-	SwitchProvider(ScheduleService_SwitchProviderServer) error
-	GetFreeProvider(ScheduleService_GetFreeProviderServer) error
+	AddProvider(context.Context, *Provider) (*UUID, error)
+	SelectProvider(context.Context, *UUID) (*Provider, error)
+	SwitchProvider(context.Context, *UUID) (*Provider, error)
+	GetFreeProvider(context.Context, *Empty) (*Provider, error)
+	ShowProviders(context.Context, *Empty) (*Providers, error)
 	mustEmbedUnimplementedScheduleServiceServer()
 }
 
@@ -182,17 +106,20 @@ type ScheduleServiceServer interface {
 type UnimplementedScheduleServiceServer struct {
 }
 
-func (UnimplementedScheduleServiceServer) AddProvider(ScheduleService_AddProviderServer) error {
-	return status.Errorf(codes.Unimplemented, "method AddProvider not implemented")
+func (UnimplementedScheduleServiceServer) AddProvider(context.Context, *Provider) (*UUID, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddProvider not implemented")
 }
-func (UnimplementedScheduleServiceServer) SelectProvider(ScheduleService_SelectProviderServer) error {
-	return status.Errorf(codes.Unimplemented, "method SelectProvider not implemented")
+func (UnimplementedScheduleServiceServer) SelectProvider(context.Context, *UUID) (*Provider, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SelectProvider not implemented")
 }
-func (UnimplementedScheduleServiceServer) SwitchProvider(ScheduleService_SwitchProviderServer) error {
-	return status.Errorf(codes.Unimplemented, "method SwitchProvider not implemented")
+func (UnimplementedScheduleServiceServer) SwitchProvider(context.Context, *UUID) (*Provider, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SwitchProvider not implemented")
 }
-func (UnimplementedScheduleServiceServer) GetFreeProvider(ScheduleService_GetFreeProviderServer) error {
-	return status.Errorf(codes.Unimplemented, "method GetFreeProvider not implemented")
+func (UnimplementedScheduleServiceServer) GetFreeProvider(context.Context, *Empty) (*Provider, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFreeProvider not implemented")
+}
+func (UnimplementedScheduleServiceServer) ShowProviders(context.Context, *Empty) (*Providers, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ShowProviders not implemented")
 }
 func (UnimplementedScheduleServiceServer) mustEmbedUnimplementedScheduleServiceServer() {}
 
@@ -207,108 +134,94 @@ func RegisterScheduleServiceServer(s grpc.ServiceRegistrar, srv ScheduleServiceS
 	s.RegisterService(&ScheduleService_ServiceDesc, srv)
 }
 
-func _ScheduleService_AddProvider_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ScheduleServiceServer).AddProvider(&scheduleServiceAddProviderServer{stream})
-}
-
-type ScheduleService_AddProviderServer interface {
-	Send(*UUID) error
-	Recv() (*Provider, error)
-	grpc.ServerStream
-}
-
-type scheduleServiceAddProviderServer struct {
-	grpc.ServerStream
-}
-
-func (x *scheduleServiceAddProviderServer) Send(m *UUID) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *scheduleServiceAddProviderServer) Recv() (*Provider, error) {
-	m := new(Provider)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
+func _ScheduleService_AddProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Provider)
+	if err := dec(in); err != nil {
 		return nil, err
 	}
-	return m, nil
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).AddProvider(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_AddProvider_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).AddProvider(ctx, req.(*Provider))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-func _ScheduleService_SelectProvider_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ScheduleServiceServer).SelectProvider(&scheduleServiceSelectProviderServer{stream})
-}
-
-type ScheduleService_SelectProviderServer interface {
-	Send(*Provider) error
-	Recv() (*UUID, error)
-	grpc.ServerStream
-}
-
-type scheduleServiceSelectProviderServer struct {
-	grpc.ServerStream
-}
-
-func (x *scheduleServiceSelectProviderServer) Send(m *Provider) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *scheduleServiceSelectProviderServer) Recv() (*UUID, error) {
-	m := new(UUID)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
+func _ScheduleService_SelectProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UUID)
+	if err := dec(in); err != nil {
 		return nil, err
 	}
-	return m, nil
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).SelectProvider(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_SelectProvider_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).SelectProvider(ctx, req.(*UUID))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-func _ScheduleService_SwitchProvider_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ScheduleServiceServer).SwitchProvider(&scheduleServiceSwitchProviderServer{stream})
-}
-
-type ScheduleService_SwitchProviderServer interface {
-	Send(*Provider) error
-	Recv() (*UUID, error)
-	grpc.ServerStream
-}
-
-type scheduleServiceSwitchProviderServer struct {
-	grpc.ServerStream
-}
-
-func (x *scheduleServiceSwitchProviderServer) Send(m *Provider) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *scheduleServiceSwitchProviderServer) Recv() (*UUID, error) {
-	m := new(UUID)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
+func _ScheduleService_SwitchProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UUID)
+	if err := dec(in); err != nil {
 		return nil, err
 	}
-	return m, nil
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).SwitchProvider(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_SwitchProvider_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).SwitchProvider(ctx, req.(*UUID))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-func _ScheduleService_GetFreeProvider_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ScheduleServiceServer).GetFreeProvider(&scheduleServiceGetFreeProviderServer{stream})
-}
-
-type ScheduleService_GetFreeProviderServer interface {
-	Send(*Provider) error
-	Recv() (*Empty, error)
-	grpc.ServerStream
-}
-
-type scheduleServiceGetFreeProviderServer struct {
-	grpc.ServerStream
-}
-
-func (x *scheduleServiceGetFreeProviderServer) Send(m *Provider) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *scheduleServiceGetFreeProviderServer) Recv() (*Empty, error) {
-	m := new(Empty)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
+func _ScheduleService_GetFreeProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
 		return nil, err
 	}
-	return m, nil
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).GetFreeProvider(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_GetFreeProvider_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).GetFreeProvider(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ScheduleService_ShowProviders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).ShowProviders(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_ShowProviders_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).ShowProviders(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 // ScheduleService_ServiceDesc is the grpc.ServiceDesc for ScheduleService service.
@@ -317,33 +230,29 @@ func (x *scheduleServiceGetFreeProviderServer) Recv() (*Empty, error) {
 var ScheduleService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "rpc.ScheduleService",
 	HandlerType: (*ScheduleServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams: []grpc.StreamDesc{
+	Methods: []grpc.MethodDesc{
 		{
-			StreamName:    "addProvider",
-			Handler:       _ScheduleService_AddProvider_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
+			MethodName: "addProvider",
+			Handler:    _ScheduleService_AddProvider_Handler,
 		},
 		{
-			StreamName:    "selectProvider",
-			Handler:       _ScheduleService_SelectProvider_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
+			MethodName: "selectProvider",
+			Handler:    _ScheduleService_SelectProvider_Handler,
 		},
 		{
-			StreamName:    "switchProvider",
-			Handler:       _ScheduleService_SwitchProvider_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
+			MethodName: "switchProvider",
+			Handler:    _ScheduleService_SwitchProvider_Handler,
 		},
 		{
-			StreamName:    "getFreeProvider",
-			Handler:       _ScheduleService_GetFreeProvider_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
+			MethodName: "getFreeProvider",
+			Handler:    _ScheduleService_GetFreeProvider_Handler,
+		},
+		{
+			MethodName: "showProviders",
+			Handler:    _ScheduleService_ShowProviders_Handler,
 		},
 	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "rpc/rpcserver.proto",
 }
 

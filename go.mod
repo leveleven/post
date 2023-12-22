@@ -18,6 +18,7 @@ require (
 )
 
 require (
+	github.com/google/uuid v1.5.0
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect

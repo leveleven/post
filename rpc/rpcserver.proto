@@ -5,10 +5,11 @@ package rpc;
 option go_package = "/proto";
 
 service ScheduleService {
-    rpc addProvider (stream Provider) returns (stream UUID);
-    rpc selectProvider (stream UUID) returns (stream Provider);
-    rpc switchProvider (stream UUID) returns (stream Provider);
-    rpc getFreeProvider (stream empty) returns (stream Provider);
+    rpc addProvider (Provider) returns (UUID);
+    rpc selectProvider (UUID) returns (Provider);
+    rpc switchProvider (UUID) returns (Provider);
+    rpc getFreeProvider (empty) returns (Provider);
+    rpc showProviders (empty) returns (Providers);
 }
 
 service PlotService {
@@ -32,15 +33,18 @@ message StreamResponse {
 }
 
 message Provider {
-    // Provider provide = 1;
     uint32   ID          = 1;
     string   Model       = 2;
-    int32    DeviceType  = 3;
-    string   UUID        = 4;
-	string   Host        = 5; 
-	int32    Port        = 6;
-	bool     inUse       = 7;
+    string   UUID        = 3;
+	string   Host        = 4;
+	string   Port        = 5;
+	bool     inUse       = 6;
 }
+
+message Providers{
+    map<string, Provider> providers = 1;
+}
+
 
 message UUID {
     string UUID = 1;

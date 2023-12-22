@@ -1,7 +1,7 @@
 export CGO_ENABLED := 1
 include Makefile.Inc
 
-build: postcli
+build: postcli plotserver schedule
 .PHONY: build
 
 test: get-postrs-lib
@@ -87,6 +87,10 @@ postcli: get-postrs-lib
 plotserver: get-postrs-lib
 	go build -o $(BIN_DIR)$@$(EXE) ./cmd/plotserver
 .PHONY: plotserver
+
+schedule: get-postrs-lib
+	go build -o $(BIN_DIR)$@$(EXE) ./cmd/schedule
+.PHONY: schedule
 
 bench:
 	@$(ULIMIT) CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" go test -benchmem -run='^$$' -bench 'BenchmarkVerifying|BenchmarkProving' github.com/spacemeshos/post/proving github.com/spacemeshos/post/verifying
