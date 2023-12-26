@@ -2,22 +2,30 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
+	"path/filepath"
 
-	"github.com/davecgh/go-spew/spew"
+	"github.com/spacemeshos/post/config"
 	"github.com/spacemeshos/post/rpc"
-
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
+var DefaultDataDir = filepath.Join("/data", "post")
+
 var (
+	opts = config.MainnetInitOpts()
+
 	host     string
 	port     string
 	schedule string
 
-	printProviders bool
+	idHex              string
+	id                 []byte
+	commitmentAtxIdHex string
+	numUnits           rpc.NumUnitsFlag
+	parallel           int
+	LabelsPerUnit      uint64
 
 	logLevel zapcore.Level
 )
@@ -27,26 +35,18 @@ func parseFlags() {
 	flag.StringVar(&port, "port", "1234", "set host port")
 	flag.StringVar(&host, "host", "127.0.0.1", "set host ip")
 	flag.StringVar(&schedule, "schedule", "127.0.0.1:2345", "set schedule node ip:port")
+	flag.StringVar(&opts.DataDir, "datadir", DefaultDataDir, "filesystem datadir path")
+	flag.StringVar(&commitmentAtxIdHex, "commitmentAtxId", "", "commitment atx id, in hex (required)")
+	flag.Var(&numUnits, "numUnits", "number of units")
+	flag.IntVar(&parallel, "parallel", 40, "parallel plot number, depend on your disk bandwidth (default 40)")
 
-	flag.BoolVar(&printProviders, "printProviders", false, "print the list of compute providers")
+	flag.Uint64Var(&opts.MaxFileSize, "maxFileSize", config.MainnetInitOpts().MaxFileSize, "max file size")
+	flag.Uint64Var(&LabelsPerUnit, "labelsPerUnit", config.MainnetConfig().LabelsPerUnit, "the number of labels per unit")
 
 	flag.Parse()
 }
 
 func main() {
-	var plot_server rpc.PlotServer
-	parseFlags()
-
-	if printProviders {
-		var providers, err = rpc.GetProviders()
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		spew.Dump(providers)
-		return
-	}
-
 	zapCfg := zap.Config{
 		Level:    zap.NewAtomicLevelAt(logLevel),
 		Encoding: "console",
@@ -63,18 +63,23 @@ func main() {
 		OutputPaths:      []string{"stdout"},
 		ErrorOutputPaths: []string{"stderr"},
 	}
+
 	logger, err := zapCfg.Build()
 	if err != nil {
 		log.Fatalln("failed to initialize zap logger:", err)
 	}
 
-	plot_server.Host = host
-	plot_server.Port = port
-	plot_server.Schedule = schedule
-	plot_server.Logger = logger
-
-	if err := plot_server.RemotePlotServer(); err != nil {
-		log.Fatalln("failed to start plot server:", err)
-		return
+	server := rpc.NodeServer{
+		Host:            host,
+		Port:            port,
+		Schedule:        schedule,
+		CommitmentAtxId: commitmentAtxIdHex,
+		NumUnits:        numUnits,
+		LabelsPerUnit:   LabelsPerUnit,
+		Opts:            &opts,
+		Logger:          logger,
 	}
+
+	// 启动服务
+	server.RemoteNodeServer()
 }

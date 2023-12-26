@@ -13,18 +13,36 @@ service ScheduleService {
 }
 
 service PlotService {
-    rpc Plot (stream StreamRequest) returns (stream StreamResponse);
+    rpc Plot (Task) returns (stream StreamResponse);
 }
 
-message StreamRequest {
-    bytes  id                 = 1;
-    bytes  commitmentAtxId    = 2;
-    uint32 numUnits           = 3;
-    int64  index              = 4;
-    uint32 provider           = 5;
+service NodeService {
+    rpc showTasks (empty) returns (Tasks);
 }
+
+message StreamRequest {}
 
 message StreamResponse {
+    bytes  output          = 1;
+    uint64 nonce           = 2;
+    uint64 startPosition   = 3;
+    // uint64 fileOffset      = 4;
+    // uint64 currentPosition = 5;
+}
+
+message Task {
+    bytes    id               = 1;
+    bytes    commitmentAtxId  = 2;
+    uint32   numUnits         = 3;
+    int64    index            = 4;
+    Provider provider         = 5;
+}
+
+message Tasks {
+    repeated Task tasks = 1;
+}
+
+message Data {
     bytes  output          = 1;
     uint64 nonce           = 2;
     uint64 startPosition   = 3;
@@ -41,10 +59,9 @@ message Provider {
 	bool     inUse       = 6;
 }
 
-message Providers{
-    map<string, Provider> providers = 1;
+message Providers {
+    repeated Provider Provider = 1;
 }
-
 
 message UUID {
     string UUID = 1;

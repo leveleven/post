@@ -199,10 +199,13 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 			// FileOffset:      fileOffset,
 			// CurrentPosition: currentPosition,
 		}
-		stream.Send(result)
+		if err := stream.Send(result); err != nil {
+			return err
+		}
 		// init.data <- res.Output
 		// init.data_nonce <- res.Nonce
 	}
+	stream.Context().Done()
 
 	return nil
 }

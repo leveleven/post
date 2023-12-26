@@ -33,7 +33,7 @@ type GPUProvider struct {
 	UUID  string
 }
 
-func getProviders() ([]GPUProvider, error) {
+func GetProviders() ([]GPUProvider, error) {
 	var providers, err = postrs.OpenCLProviders()
 	if err != nil {
 		return nil, err
@@ -52,16 +52,11 @@ func getProviders() ([]GPUProvider, error) {
 	return gpu_providers, nil
 }
 
-func (ps *PlotServer) Plot(stream pb.PlotService_PlotServer) error {
+func (ps *PlotServer) Plot(request *pb.Task, stream pb.PlotService_PlotServer) error {
 	var cfg = config.MainnetConfig()
 	var opts = config.MainnetInitOpts()
 
-	request, err := stream.Recv()
-	if err != nil {
-		return fmt.Errorf("rpc recv fail: %w", err)
-	}
-
-	opts.ProviderID = &request.Provider
+	opts.ProviderID = &request.Provider.ID
 	if opts.ProviderID == nil {
 		fmt.Printf("no enough gpu to use.")
 		return nil
@@ -89,7 +84,6 @@ func (ps *PlotServer) Plot(stream pb.PlotService_PlotServer) error {
 
 func (ps *PlotServer) submitPlot() error {
 	// tls
-	// creds, err := credentials.NewClientTLSFromFile("server.crt", "go-grpc-tutorial")
 	connect, err := grpc.Dial(ps.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("failed connecting to server:", err)
@@ -97,7 +91,7 @@ func (ps *PlotServer) submitPlot() error {
 	defer connect.Close()
 	client := pb.NewScheduleServiceClient(connect)
 
-	gpu_provider, err := getProviders()
+	gpu_provider, err := GetProviders()
 	if err != nil {
 		return err
 	}
@@ -141,7 +135,7 @@ func (ps *PlotServer) RemotePlotServer() error {
 	rps := grpc.NewServer()
 	reflection.Register(rps)
 	pb.RegisterPlotServiceServer(rps, ps)
-	fmt.Println("Server is listening on " + ps.Host + ":" + ps.Port)
+	fmt.Println("Plot server is listening on " + ps.Host + ":" + ps.Port)
 	if err := rps.Serve(listener); err != nil {
 		return fmt.Errorf("failed to serve:", err)
 	}

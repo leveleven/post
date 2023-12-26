@@ -6,9 +6,9 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
-	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,28 +21,58 @@ import (
 	pb "github.com/spacemeshos/post/rpc/proto"
 	"github.com/spacemeshos/post/shared"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 const edKeyFileName = "key.bin"
 
+const (
+	Pending = StatusType(0)
+	Ploting = StatusType(1)
+	Ploted  = StatusType(2)
+)
+
 var DefaultDataDir = filepath.Join("/data", "post")
 
+type StatusType int
+
+type NodeServer struct {
+	Host     string
+	Port     string
+	Schedule string
+
+	CommitmentAtxId string
+	NumUnits        NumUnitsFlag
+	LabelsPerUnit   uint64
+	Opts            *config.InitOpts
+
+	Logger *zap.Logger
+
+	*pb.UnimplementedPlotServiceServer
+}
+
 type Node struct {
-	ID              []byte
+	nodeID          []byte
 	CommitmentAtxId []byte
-	NumUnits        numUnitsFlag
-	// DataDir         string
-	Nonces       []Nonce
-	nonceValue   atomic.Pointer[[]byte]
-	nonce        atomic.Pointer[uint64]
-	lastPosition atomic.Pointer[uint64]
-	Provider     uint32
+	NumUnits        NumUnitsFlag
+	Nonces          []Nonce
+	nonceValue      atomic.Pointer[[]byte]
+	nonce           atomic.Pointer[uint64]
+	lastPosition    atomic.Pointer[uint64]
+	LabelsPerUnit   uint64
+	Provider        uint32
+	Tasks           []*Task
 
 	logger *zap.Logger
 	opts   *config.InitOpts
+}
+
+type Task struct {
+	Index    int64
+	Provider Provider
+	Status   StatusType
 }
 
 type Nonce struct {
@@ -54,58 +84,43 @@ type PostData struct {
 	Nonce uint
 }
 
-type numUnitsFlag struct {
+type NumUnitsFlag struct {
 	set   bool
 	value uint32
 }
 
-func (nu *numUnitsFlag) Set(s string) error {
+func (s StatusType) String() string {
+	switch s {
+	case Pending:
+		return "pending"
+	case Ploting:
+		return "ploting"
+	case Ploted:
+		return "ploted"
+	default:
+		return "unknown"
+	}
+}
+
+func (nu *NumUnitsFlag) Set(s string) error {
 	val, err := strconv.ParseUint(s, 10, 32)
 	if err != nil {
 		return err
 	}
-	*nu = numUnitsFlag{
+	*nu = NumUnitsFlag{
 		set:   true,
 		value: uint32(val),
 	}
 	return nil
 }
 
-func (nu *numUnitsFlag) String() string {
+func (nu *NumUnitsFlag) String() string {
 	return fmt.Sprintf("%d", nu.value)
 }
 
 var (
-	opts = config.MainnetInitOpts()
-
-	idHex              string
-	id                 []byte
-	commitmentAtxIdHex string
-	numUnits           numUnitsFlag
-	parallel           int
-	// DataDir            string
-
-	logLevel zapcore.Level
-
-	// MaxFileSize   uint64
-	LabelsPerUnit uint64
-
 	ErrKeyFileExists = errors.New("key file already exists")
 )
-
-func parseFlags() {
-	flag.TextVar(&logLevel, "logLevel", zapcore.InfoLevel, "log level (debug, info, warn, error, dpanic, panic, fatal)")
-	flag.StringVar(&opts.DataDir, "datadir", DefaultDataDir, "filesystem datadir path")
-	flag.StringVar(&idHex, "id", "", "miner's id (public key), in hex (will be auto-generated if not provided)")
-	flag.StringVar(&commitmentAtxIdHex, "commitmentAtxId", "", "commitment atx id, in hex (required)")
-	flag.Var(&numUnits, "numUnits", "number of units")
-	flag.IntVar(&parallel, "parallel", 40, "parallel plot number, depend on your disk bandwidth (default 40)")
-
-	flag.Uint64Var(&opts.MaxFileSize, "maxFileSize", config.MainnetInitOpts().MaxFileSize, "max file size")
-	flag.Uint64Var(&LabelsPerUnit, "labelsPerUnit", config.MainnetConfig().LabelsPerUnit, "the number of labels per unit")
-
-	flag.Parse()
-}
 
 func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 
@@ -175,173 +190,135 @@ func (n *Node) saveKey(key ed25519.PrivateKey) error {
 	return nil
 }
 
-type StatusType int
-
-func (n *Node) generateFileStatus(lastFileIndex int) map[int]StatusType {
-	fileStatus := make(map[int]StatusType)
-	for i := 0; i < lastFileIndex; i++ {
-		fileStatus[i] = StatusType(0)
+func (n *Node) getNodeID() ([]byte, error) {
+	filename := filepath.Join(n.opts.DataDir, edKeyFileName)
+	if _, err := os.Stat(filename); err == nil {
+		key, err := os.ReadFile(filename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open key file: %w", err)
+		}
+		return key[32:], nil
 	}
-	return fileStatus
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate identity: %w", err)
+	}
+	id := pub
+	log.Printf("cli: generated id %x\n", id)
+	if err := n.saveKey(priv); err != nil {
+		return nil, fmt.Errorf("save key failed: ", err)
+	}
+	return id, nil
 }
 
-const (
-	Pending = StatusType(0)
-	Ploting = StatusType(1)
-	Ploted  = StatusType(2)
-)
-
-func (s StatusType) String() string {
-	switch s {
-	case Pending:
-		return "pending"
-	case Ploting:
-		return "ploting"
-	case Ploted:
-		return "ploted"
-	default:
-		return "unknown"
-	}
-}
-
-func newNode() (*Node, error) {
+func (ns *NodeServer) newNode() (*Node, error) {
 	var node Node
 
-	if idHex == "" {
-		pub, priv, err := ed25519.GenerateKey(nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate identity: %w", err)
-
-		}
-		id = pub
-		log.Printf("cli: generated id %x\n", id)
-		if err := node.saveKey(priv); err != nil {
-			return nil, fmt.Errorf("save key failed: ", err)
-		}
+	id, err := node.getNodeID()
+	if err != nil {
+		return nil, err
 	}
 
-	commitmentAtxId, err := hex.DecodeString(commitmentAtxIdHex)
+	commitmentAtxId, err := hex.DecodeString(ns.CommitmentAtxId)
 	if err != nil {
 		return nil, fmt.Errorf("invalid commitmentAtxId: %w", err)
 	}
-	id, err := hex.DecodeString(idHex)
-	if err != nil {
-		return nil, fmt.Errorf("invalid id: %w", err)
-	}
 
-	zapCfg := zap.Config{
-		Level:    zap.NewAtomicLevelAt(logLevel),
-		Encoding: "console",
-		EncoderConfig: zapcore.EncoderConfig{
-			TimeKey:        "T",
-			LevelKey:       "L",
-			NameKey:        "N",
-			MessageKey:     "M",
-			LineEnding:     zapcore.DefaultLineEnding,
-			EncodeLevel:    zapcore.CapitalLevelEncoder,
-			EncodeTime:     zapcore.ISO8601TimeEncoder,
-			EncodeDuration: zapcore.StringDurationEncoder,
-		},
-		OutputPaths:      []string{"stdout"},
-		ErrorOutputPaths: []string{"stderr"},
-	}
-
-	logger, err := zapCfg.Build()
-	if err != nil {
-		log.Fatalln("failed to inuint64itialize zap logger:", err)
-	}
-
-	node.ID = id
+	node.nodeID = id
 	node.CommitmentAtxId = commitmentAtxId
-	node.NumUnits = numUnits
-	// node.DataDir = opts.DataDir
-	node.logger = logger
-	node.opts = &opts
+	node.NumUnits = ns.NumUnits
+	node.logger = ns.Logger
+	node.opts = ns.Opts
+	node.LabelsPerUnit = ns.LabelsPerUnit
+
+	lastFileIndex := node.opts.TotalFiles(ns.LabelsPerUnit)
+	for f := 0; f < lastFileIndex; f++ {
+		node.Tasks = append(node.Tasks, &Task{
+			Index:  int64(f),
+			Status: StatusType(0),
+		})
+	}
 
 	return &node, nil
 }
 
-func (n *Node) remotePlot(index int, fileStatus map[int]StatusType, connect *grpc.ClientConn) {
+func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 	defer connect.Close()
 
 	// 获取connect(最大值判断)
 	client := pb.NewPlotServiceClient(connect)
-	request := &pb.StreamRequest{
-		Id:              n.ID,
+	request := &pb.Task{
+		Id:              n.nodeID,
 		CommitmentAtxId: n.CommitmentAtxId,
 		NumUnits:        n.NumUnits.value,
-		Index:           int64(index),
-		Provider:        n.Provider,
+		Index:           task.Index,
+		Provider: &pb.Provider{
+			ID:    task.Provider.ID,
+			Model: task.Provider.Model,
+			UUID:  task.Provider.UUID,
+		},
 	}
 
-	stream, err := client.Plot(context.Background(), nil)
+	stream, err := client.Plot(context.Background(), request)
 	if err != nil {
 		log.Fatalf("failed to open stream: %v", err)
 	}
 
-	if err := stream.Send(request); err != nil {
-		log.Fatalf("failed to send message: %v", err)
-	}
-	fileStatus[index] = StatusType(1)
-	if err := n.saveFile(stream, index); err != nil {
+	task.Status = StatusType(1)
+	if err := n.saveFile(stream, int(task.Index)); err != nil {
 		fields := []zap.Field{
-			zap.Int("index:", index),
+			zap.Int64("index:", task.Index),
 			zap.String("error:", err.Error()),
 		}
 		n.logger.Error("ploting failed:", fields...)
-		fileStatus[index] = StatusType(0)
+		task.Status = StatusType(0)
 		return
 	}
-	fileStatus[index] = StatusType(3)
+	task.Status = StatusType(3)
 }
 
-func NodeServer() {
-	parseFlags()
-	node, _ := newNode()
+func (n *Node) startPlot() {
+	// parseFlags()
 
 	// 这里拆分numUnits 做一个kv数据库 自己管理任务状态
 	// 1. 列出所有需要做的文件
 	// 2. 获取所需要的provider
 	// 3. 进入工作
-	lastFileIndex := opts.TotalFiles(LabelsPerUnit)
-	fileStatus := node.generateFileStatus(lastFileIndex)
 
-	for f := 0; f < lastFileIndex; f++ {
+	for _, task := range n.Tasks {
 		// 获取provider connect
 		// 获取worker
-
 		connect, err := grpc.Dial("10.100.85.0:1234")
 		if err != nil {
 			log.Fatalln("Error connecting to server:", err)
 			return
 		}
-		node.remotePlot(f, fileStatus, connect)
+		n.remotePlot(task, connect)
 	}
 
 	// 文件全部做完，开始比较nonce
-	node.nonce.Store(&node.Nonces[0].Nonce)
-	node.nonceValue.Store(&node.Nonces[0].NonceValue)
-	for _, n := range node.Nonces {
-		if bytes.Compare(*node.nonceValue.Load(), n.NonceValue) > 0 {
-			node.nonce.Store(&n.Nonce)
-			node.nonceValue.Store(&n.NonceValue)
-
+	n.nonce.Store(&n.Nonces[0].Nonce)
+	n.nonceValue.Store(&n.Nonces[0].NonceValue)
+	for _, ns := range n.Nonces {
+		if bytes.Compare(*n.nonceValue.Load(), ns.NonceValue) > 0 {
+			n.nonce.Store(&ns.Nonce)
+			n.nonceValue.Store(&ns.NonceValue)
 		}
 	}
 
-	if node.nonce.Load() != nil {
-		node.logger.Info("initialization: completed, found nonce", zap.Uint64("nonce", *node.nonce.Load()))
+	if n.nonce.Load() != nil {
+		n.logger.Info("initialization: completed, found nonce", zap.Uint64("nonce", *n.nonce.Load()))
 		return
 	}
 
-	defer node.saveMetadata()
+	defer n.saveMetadata()
 }
 
 func (n *Node) saveMetadata() error {
 	v := shared.PostMetadata{
-		NodeId:          n.ID,
+		NodeId:          n.nodeID,
 		CommitmentAtxId: n.CommitmentAtxId,
-		LabelsPerUnit:   LabelsPerUnit,
+		LabelsPerUnit:   n.LabelsPerUnit,
 		NumUnits:        n.NumUnits.value,
 		MaxFileSize:     n.opts.MaxFileSize,
 		Nonce:           n.nonce.Load(),
@@ -351,4 +328,20 @@ func (n *Node) saveMetadata() error {
 		v.NonceValue = *n.nonceValue.Load()
 	}
 	return initialization.SaveMetadata(n.opts.DataDir, &v)
+}
+
+func (ns *NodeServer) RemoteNodeServer() error {
+	listener, err := net.Listen("tcp", ns.Host+":"+ns.Port)
+	if err != nil {
+		return fmt.Errorf("failed to listen", ns.Host+":"+ns.Port, err)
+	}
+
+	rps := grpc.NewServer()
+	reflection.Register(rps)
+	pb.RegisterPlotServiceServer(rps, ns)
+	fmt.Println("Node server is listening on " + ns.Host + ":" + ns.Port)
+	if err := rps.Serve(listener); err != nil {
+		return fmt.Errorf("failed to serve:", err)
+	}
+	return nil
 }

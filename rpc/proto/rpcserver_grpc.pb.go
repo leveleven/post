@@ -264,7 +264,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PlotServiceClient interface {
-	Plot(ctx context.Context, opts ...grpc.CallOption) (PlotService_PlotClient, error)
+	Plot(ctx context.Context, in *Task, opts ...grpc.CallOption) (PlotService_PlotClient, error)
 }
 
 type plotServiceClient struct {
@@ -275,27 +275,28 @@ func NewPlotServiceClient(cc grpc.ClientConnInterface) PlotServiceClient {
 	return &plotServiceClient{cc}
 }
 
-func (c *plotServiceClient) Plot(ctx context.Context, opts ...grpc.CallOption) (PlotService_PlotClient, error) {
+func (c *plotServiceClient) Plot(ctx context.Context, in *Task, opts ...grpc.CallOption) (PlotService_PlotClient, error) {
 	stream, err := c.cc.NewStream(ctx, &PlotService_ServiceDesc.Streams[0], PlotService_Plot_FullMethodName, opts...)
 	if err != nil {
 		return nil, err
 	}
 	x := &plotServicePlotClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
 	return x, nil
 }
 
 type PlotService_PlotClient interface {
-	Send(*StreamRequest) error
 	Recv() (*StreamResponse, error)
 	grpc.ClientStream
 }
 
 type plotServicePlotClient struct {
 	grpc.ClientStream
-}
-
-func (x *plotServicePlotClient) Send(m *StreamRequest) error {
-	return x.ClientStream.SendMsg(m)
 }
 
 func (x *plotServicePlotClient) Recv() (*StreamResponse, error) {
@@ -310,7 +311,7 @@ func (x *plotServicePlotClient) Recv() (*StreamResponse, error) {
 // All implementations must embed UnimplementedPlotServiceServer
 // for forward compatibility
 type PlotServiceServer interface {
-	Plot(PlotService_PlotServer) error
+	Plot(*Task, PlotService_PlotServer) error
 	mustEmbedUnimplementedPlotServiceServer()
 }
 
@@ -318,7 +319,7 @@ type PlotServiceServer interface {
 type UnimplementedPlotServiceServer struct {
 }
 
-func (UnimplementedPlotServiceServer) Plot(PlotService_PlotServer) error {
+func (UnimplementedPlotServiceServer) Plot(*Task, PlotService_PlotServer) error {
 	return status.Errorf(codes.Unimplemented, "method Plot not implemented")
 }
 func (UnimplementedPlotServiceServer) mustEmbedUnimplementedPlotServiceServer() {}
@@ -335,12 +336,15 @@ func RegisterPlotServiceServer(s grpc.ServiceRegistrar, srv PlotServiceServer) {
 }
 
 func _PlotService_Plot_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(PlotServiceServer).Plot(&plotServicePlotServer{stream})
+	m := new(Task)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(PlotServiceServer).Plot(m, &plotServicePlotServer{stream})
 }
 
 type PlotService_PlotServer interface {
 	Send(*StreamResponse) error
-	Recv() (*StreamRequest, error)
 	grpc.ServerStream
 }
 
@@ -350,14 +354,6 @@ type plotServicePlotServer struct {
 
 func (x *plotServicePlotServer) Send(m *StreamResponse) error {
 	return x.ServerStream.SendMsg(m)
-}
-
-func (x *plotServicePlotServer) Recv() (*StreamRequest, error) {
-	m := new(StreamRequest)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
 }
 
 // PlotService_ServiceDesc is the grpc.ServiceDesc for PlotService service.
@@ -372,8 +368,97 @@ var PlotService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Plot",
 			Handler:       _PlotService_Plot_Handler,
 			ServerStreams: true,
-			ClientStreams: true,
 		},
 	},
+	Metadata: "rpc/rpcserver.proto",
+}
+
+const (
+	NodeService_ShowTasks_FullMethodName = "/rpc.NodeService/showTasks"
+)
+
+// NodeServiceClient is the client API for NodeService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type NodeServiceClient interface {
+	ShowTasks(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Tasks, error)
+}
+
+type nodeServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewNodeServiceClient(cc grpc.ClientConnInterface) NodeServiceClient {
+	return &nodeServiceClient{cc}
+}
+
+func (c *nodeServiceClient) ShowTasks(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Tasks, error) {
+	out := new(Tasks)
+	err := c.cc.Invoke(ctx, NodeService_ShowTasks_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// NodeServiceServer is the server API for NodeService service.
+// All implementations must embed UnimplementedNodeServiceServer
+// for forward compatibility
+type NodeServiceServer interface {
+	ShowTasks(context.Context, *Empty) (*Tasks, error)
+	mustEmbedUnimplementedNodeServiceServer()
+}
+
+// UnimplementedNodeServiceServer must be embedded to have forward compatible implementations.
+type UnimplementedNodeServiceServer struct {
+}
+
+func (UnimplementedNodeServiceServer) ShowTasks(context.Context, *Empty) (*Tasks, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ShowTasks not implemented")
+}
+func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
+
+// UnsafeNodeServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to NodeServiceServer will
+// result in compilation errors.
+type UnsafeNodeServiceServer interface {
+	mustEmbedUnimplementedNodeServiceServer()
+}
+
+func RegisterNodeServiceServer(s grpc.ServiceRegistrar, srv NodeServiceServer) {
+	s.RegisterService(&NodeService_ServiceDesc, srv)
+}
+
+func _NodeService_ShowTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).ShowTasks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_ShowTasks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).ShowTasks(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var NodeService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "rpc.NodeService",
+	HandlerType: (*NodeServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "showTasks",
+			Handler:    _NodeService_ShowTasks_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "rpc/rpcserver.proto",
 }
