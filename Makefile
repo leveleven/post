@@ -1,7 +1,7 @@
 export CGO_ENABLED := 1
 include Makefile.Inc
 
-build: postcli plotserver schedule
+build: postcli plotserver schedule nodeserver
 .PHONY: build
 
 test: get-postrs-lib
@@ -87,6 +87,10 @@ postcli: get-postrs-lib
 plotserver: get-postrs-lib
 	go build -o $(BIN_DIR)$@$(EXE) ./cmd/plotserver
 .PHONY: plotserver
+
+nodeserver: get-postrs-lib
+	go build -o $(BIN_DIR)$@$(EXE) ./cmd/nodeserver
+.PHONY: nodeserver
 
 schedule: get-postrs-lib
 	go build -o $(BIN_DIR)$@$(EXE) ./cmd/schedule

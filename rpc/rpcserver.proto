@@ -36,6 +36,7 @@ message Task {
     uint32   numUnits         = 3;
     int64    index            = 4;
     Provider provider         = 5;
+    string   status           = 6;
 }
 
 message Tasks {

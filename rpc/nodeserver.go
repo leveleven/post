@@ -5,13 +5,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync/atomic"
 
 	"github.com/spacemeshos/post/config"
@@ -43,30 +41,26 @@ type NodeServer struct {
 	Port     string
 	Schedule string
 
-	CommitmentAtxId string
-	NumUnits        NumUnitsFlag
-	LabelsPerUnit   uint64
-	Opts            *config.InitOpts
+	Node Node
 
-	Logger *zap.Logger
-
-	*pb.UnimplementedPlotServiceServer
+	*pb.UnimplementedNodeServiceServer
 }
 
 type Node struct {
 	nodeID          []byte
 	CommitmentAtxId []byte
-	NumUnits        NumUnitsFlag
+	NumUnits        uint32
 	Nonces          []Nonce
 	nonceValue      atomic.Pointer[[]byte]
 	nonce           atomic.Pointer[uint64]
 	lastPosition    atomic.Pointer[uint64]
 	LabelsPerUnit   uint64
-	Provider        uint32
-	Tasks           []*Task
 
-	logger *zap.Logger
-	opts   *config.InitOpts
+	Tasks     []*Task
+	Providers []*Provider
+
+	Logger *zap.Logger
+	Opts   *config.InitOpts
 }
 
 type Task struct {
@@ -84,11 +78,6 @@ type PostData struct {
 	Nonce uint
 }
 
-type NumUnitsFlag struct {
-	set   bool
-	value uint32
-}
-
 func (s StatusType) String() string {
 	switch s {
 	case Pending:
@@ -102,29 +91,9 @@ func (s StatusType) String() string {
 	}
 }
 
-func (nu *NumUnitsFlag) Set(s string) error {
-	val, err := strconv.ParseUint(s, 10, 32)
-	if err != nil {
-		return err
-	}
-	*nu = NumUnitsFlag{
-		set:   true,
-		value: uint32(val),
-	}
-	return nil
-}
-
-func (nu *NumUnitsFlag) String() string {
-	return fmt.Sprintf("%d", nu.value)
-}
-
-var (
-	ErrKeyFileExists = errors.New("key file already exists")
-)
-
 func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 
-	writer, err := persistence.NewLabelsWriter(n.opts.DataDir, index, config.BitsPerLabel)
+	writer, err := persistence.NewLabelsWriter(n.Opts.DataDir, index, config.BitsPerLabel)
 	if err != nil {
 		return err
 	}
@@ -134,7 +103,7 @@ loop:
 	for {
 		res, err := result.Recv()
 		if err != nil {
-			n.logger.Error("failed to receive message: %v", zap.String("error", err.Error()))
+			n.Logger.Error("failed to receive message: %v", zap.String("error", err.Error()))
 			continue
 		}
 		// res处理
@@ -147,7 +116,7 @@ loop:
 				zap.Uint64("nonce", res.Nonce),
 				zap.String("value", hex.EncodeToString(candidate)),
 			}
-			n.logger.Debug("initialization: found nonce", fields...)
+			n.Logger.Debug("initialization: found nonce", fields...)
 
 			// 判断全局nonce
 			nonce := Nonce{
@@ -175,15 +144,11 @@ loop:
 }
 
 func (n *Node) saveKey(key ed25519.PrivateKey) error {
-	if err := os.MkdirAll(n.opts.DataDir, 0o700); err != nil && !os.IsExist(err) {
+	if err := os.MkdirAll(n.Opts.DataDir, 0o700); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("mkdir error: %w", err)
 	}
 
-	filename := filepath.Join(n.opts.DataDir, edKeyFileName)
-	if _, err := os.Stat(filename); err == nil {
-		return ErrKeyFileExists
-	}
-
+	filename := filepath.Join(n.Opts.DataDir, edKeyFileName)
 	if err := os.WriteFile(filename, []byte(hex.EncodeToString(key)), 0o600); err != nil {
 		return fmt.Errorf("key write to disk error: %w", err)
 	}
@@ -191,7 +156,7 @@ func (n *Node) saveKey(key ed25519.PrivateKey) error {
 }
 
 func (n *Node) getNodeID() ([]byte, error) {
-	filename := filepath.Join(n.opts.DataDir, edKeyFileName)
+	filename := filepath.Join(n.Opts.DataDir, edKeyFileName)
 	if _, err := os.Stat(filename); err == nil {
 		key, err := os.ReadFile(filename)
 		if err != nil {
@@ -203,43 +168,36 @@ func (n *Node) getNodeID() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate identity: %w", err)
 	}
-	id := pub
-	log.Printf("cli: generated id %x\n", id)
+	n.Logger.Info("generated id", zap.ByteString("id", pub))
 	if err := n.saveKey(priv); err != nil {
 		return nil, fmt.Errorf("save key failed: ", err)
 	}
-	return id, nil
+	return pub, nil
 }
 
-func (ns *NodeServer) newNode() (*Node, error) {
-	var node Node
-
-	id, err := node.getNodeID()
+func (ns *NodeServer) GenerateTasks() error {
+	id, err := ns.Node.getNodeID()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	commitmentAtxId, err := hex.DecodeString(ns.CommitmentAtxId)
-	if err != nil {
-		return nil, fmt.Errorf("invalid commitmentAtxId: %w", err)
-	}
+	ns.Node.nodeID = id
 
-	node.nodeID = id
-	node.CommitmentAtxId = commitmentAtxId
-	node.NumUnits = ns.NumUnits
-	node.logger = ns.Logger
-	node.opts = ns.Opts
-	node.LabelsPerUnit = ns.LabelsPerUnit
-
-	lastFileIndex := node.opts.TotalFiles(ns.LabelsPerUnit)
+	lastFileIndex := ns.Node.Opts.TotalFiles(ns.Node.LabelsPerUnit)
+	ns.Node.Logger.Info("file infomation",
+		zap.Uint32("numUnits", ns.Node.NumUnits),
+		zap.Int("files", lastFileIndex),
+		zap.Uint64("labelsPerUnit", ns.Node.LabelsPerUnit),
+		zap.Uint64("maxFileSize", ns.Node.Opts.MaxFileSize),
+	)
 	for f := 0; f < lastFileIndex; f++ {
-		node.Tasks = append(node.Tasks, &Task{
+		ns.Node.Tasks = append(ns.Node.Tasks, &Task{
 			Index:  int64(f),
 			Status: StatusType(0),
 		})
 	}
 
-	return &node, nil
+	return nil
 }
 
 func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
@@ -250,7 +208,7 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 	request := &pb.Task{
 		Id:              n.nodeID,
 		CommitmentAtxId: n.CommitmentAtxId,
-		NumUnits:        n.NumUnits.value,
+		NumUnits:        n.NumUnits,
 		Index:           task.Index,
 		Provider: &pb.Provider{
 			ID:    task.Provider.ID,
@@ -270,7 +228,7 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 			zap.Int64("index:", task.Index),
 			zap.String("error:", err.Error()),
 		}
-		n.logger.Error("ploting failed:", fields...)
+		n.Logger.Error("ploting failed:", fields...)
 		task.Status = StatusType(0)
 		return
 	}
@@ -278,13 +236,6 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 }
 
 func (n *Node) startPlot() {
-	// parseFlags()
-
-	// 这里拆分numUnits 做一个kv数据库 自己管理任务状态
-	// 1. 列出所有需要做的文件
-	// 2. 获取所需要的provider
-	// 3. 进入工作
-
 	for _, task := range n.Tasks {
 		// 获取provider connect
 		// 获取worker
@@ -307,7 +258,7 @@ func (n *Node) startPlot() {
 	}
 
 	if n.nonce.Load() != nil {
-		n.logger.Info("initialization: completed, found nonce", zap.Uint64("nonce", *n.nonce.Load()))
+		n.Logger.Info("initialization: completed, found nonce", zap.Uint64("nonce", *n.nonce.Load()))
 		return
 	}
 
@@ -319,29 +270,48 @@ func (n *Node) saveMetadata() error {
 		NodeId:          n.nodeID,
 		CommitmentAtxId: n.CommitmentAtxId,
 		LabelsPerUnit:   n.LabelsPerUnit,
-		NumUnits:        n.NumUnits.value,
-		MaxFileSize:     n.opts.MaxFileSize,
+		NumUnits:        n.NumUnits,
+		MaxFileSize:     n.Opts.MaxFileSize,
 		Nonce:           n.nonce.Load(),
 		LastPosition:    n.lastPosition.Load(), // 定位未做完的bin
 	}
 	if n.nonceValue.Load() != nil {
 		v.NonceValue = *n.nonceValue.Load()
 	}
-	return initialization.SaveMetadata(n.opts.DataDir, &v)
+	return initialization.SaveMetadata(n.Opts.DataDir, &v)
 }
 
 func (ns *NodeServer) RemoteNodeServer() error {
 	listener, err := net.Listen("tcp", ns.Host+":"+ns.Port)
 	if err != nil {
-		return fmt.Errorf("failed to listen", ns.Host+":"+ns.Port, err)
+		return fmt.Errorf("failed to listen "+ns.Host+":"+ns.Port+" ", err)
 	}
 
 	rps := grpc.NewServer()
 	reflection.Register(rps)
-	pb.RegisterPlotServiceServer(rps, ns)
+	pb.RegisterNodeServiceServer(rps, ns)
 	fmt.Println("Node server is listening on " + ns.Host + ":" + ns.Port)
 	if err := rps.Serve(listener); err != nil {
 		return fmt.Errorf("failed to serve:", err)
 	}
 	return nil
+}
+
+func (ns *NodeServer) ShowTasks(ctx context.Context, empty *pb.Empty) (*pb.Tasks, error) {
+	var tasks []*pb.Task
+	for _, value := range ns.Node.Tasks {
+		tasks = append(tasks, &pb.Task{
+			Id:              ns.Node.nodeID,
+			CommitmentAtxId: ns.Node.CommitmentAtxId,
+			NumUnits:        ns.Node.NumUnits,
+			Index:           value.Index,
+			Provider: &pb.Provider{
+				ID:    value.Provider.ID,
+				Model: value.Provider.Model,
+				UUID:  value.Provider.UUID,
+			},
+			Status: value.Status.String(),
+		})
+	}
+	return &pb.Tasks{Tasks: tasks}, nil
 }
