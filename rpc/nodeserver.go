@@ -162,13 +162,15 @@ func (n *Node) getNodeID() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to open key file: %w", err)
 		}
-		return key[32:], nil
+		key_string, _ := hex.DecodeString(string(key))
+		n.Logger.Info("get node id", zap.String("id", hex.EncodeToString(key_string[32:])))
+		return key_string[32:], nil
 	}
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate identity: %w", err)
 	}
-	n.Logger.Info("generated id", zap.ByteString("id", pub))
+	n.Logger.Info("generated node id", zap.ByteString("id", pub))
 	if err := n.saveKey(priv); err != nil {
 		return nil, fmt.Errorf("save key failed: ", err)
 	}

@@ -98,6 +98,11 @@ func processFlags() error {
 func main() {
 	parseFlags()
 
+	var err error
+	if err = processFlags(); err != nil {
+		log.Fatalln("failed to process flags:", err)
+	}
+
 	zapCfg := zap.Config{
 		Level:    zap.NewAtomicLevelAt(logLevel),
 		Encoding: "console",
@@ -134,12 +139,12 @@ func main() {
 	}
 
 	// 加载任务
-	if err := server.GenerateTasks(); err != nil {
+	if err = server.GenerateTasks(); err != nil {
 		log.Fatalln("failed to generate tasks:", err)
 	}
 
 	// 启动服务
-	if err := server.RemoteNodeServer(); err != nil {
+	if err = server.RemoteNodeServer(); err != nil {
 		log.Fatalln("failed to start server:", err)
 	}
 }
