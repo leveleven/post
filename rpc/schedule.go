@@ -18,8 +18,8 @@ type ScheduleServer struct {
 	Host      string
 	Port      string
 	logger    *zap.Logger
-	mut       sync.Mutex
 
+	mut sync.Mutex
 	*pb.UnimplementedScheduleServiceServer
 }
 
@@ -68,12 +68,10 @@ func (ss *ScheduleServer) SelectProvider(ctx context.Context, request *pb.UUID) 
 
 func (ss *ScheduleServer) SwitchProvider(ctx context.Context, request *pb.UUID) (*pb.Provider, error) {
 	uuid := request.GetUUID()
-	provider := ss.Providers[uuid]
-	if provider.UUID == "" {
-		return &pb.Provider{}, nil
+	provider, err := ss.switchProvider(uuid)
+	if err != nil {
+		return &pb.Provider{}, err
 	}
-	provider.InUse = !provider.InUse
-	ss.Providers[uuid] = provider
 
 	response := &pb.Provider{
 		ID:    provider.ID,
@@ -91,7 +89,19 @@ func (ss *ScheduleServer) SwitchProvider(ctx context.Context, request *pb.UUID) 
 	return response, nil
 }
 
+func (ss *ScheduleServer) switchProvider(uuid string) (Provider, error) {
+	provider := ss.Providers[uuid]
+	if provider.UUID == "" {
+		return Provider{}, fmt.Errorf("can not find value of uuid: ", uuid)
+	}
+	provider.InUse = !provider.InUse
+	ss.Providers[uuid] = provider
+	return provider, nil
+}
+
 func (ss *ScheduleServer) GetFreeProvider(ctx context.Context, empty *pb.Empty) (*pb.Provider, error) {
+	ss.mut.Lock()
+	defer ss.mut.Unlock()
 	for _, provider := range ss.Providers {
 		if !provider.InUse {
 			response := &pb.Provider{
@@ -102,6 +112,7 @@ func (ss *ScheduleServer) GetFreeProvider(ctx context.Context, empty *pb.Empty) 
 				Port:  provider.Port,
 				InUse: provider.InUse,
 			}
+			ss.switchProvider(provider.UUID)
 			ss.logger.Info("find a idle provider", zap.String("UUID", provider.UUID))
 			return response, nil
 		}

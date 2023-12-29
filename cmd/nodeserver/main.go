@@ -44,13 +44,13 @@ var (
 	host     string
 	port     string
 	schedule string
+	parallel int
 
 	idHex              string
 	id                 []byte
 	commitmentAtxIdHex string
 	commitmentAtxId    []byte
 	numUnits           numUnitsFlag
-	parallel           int
 	LabelsPerUnit      uint64
 
 	logLevel zapcore.Level
@@ -125,7 +125,7 @@ func main() {
 		log.Fatalln("failed to initialize zap logger:", err)
 	}
 
-	server := rpc.NodeServer{
+	node_server := rpc.NodeServer{
 		Host:     host,
 		Port:     port,
 		Schedule: schedule,
@@ -139,12 +139,12 @@ func main() {
 	}
 
 	// 加载任务
-	if err = server.GenerateTasks(); err != nil {
+	if err = node_server.GenerateTasks(); err != nil {
 		log.Fatalln("failed to generate tasks:", err)
 	}
 
 	// 启动服务
-	if err = server.RemoteNodeServer(); err != nil {
+	if err = node_server.RemoteNodeServer(); err != nil {
 		log.Fatalln("failed to start server:", err)
 	}
 }

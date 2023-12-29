@@ -21,6 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -237,10 +238,23 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 	task.Status = StatusType(3)
 }
 
-func (n *Node) startPlot() {
+func (ns *NodeServer) startPlot(parallel int) {
+	n := &ns.Node
 	for _, task := range n.Tasks {
-		// 获取provider connect
 		// 获取worker
+		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatalln("Error connecting to schedule server:", err)
+			return
+		}
+		client := pb.NewScheduleServiceClient(schedule)
+		provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
+		if err != nil {
+			fmt.Errorf("failed to call method:", err)
+			return
+		}
+
+		// 获取provider connect
 		connect, err := grpc.Dial("10.100.85.0:1234")
 		if err != nil {
 			log.Fatalln("Error connecting to server:", err)
