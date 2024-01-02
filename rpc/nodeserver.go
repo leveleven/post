@@ -239,45 +239,51 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 	task.Status = StatusType(3)
 }
 
-func (ns *NodeServer) plot(task <-chan *Task, wg *sync.WaitGroup) {
+func (ns *NodeServer) plot(id int, tasks <-chan *Task, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
-	schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Fatalln("Error connecting to schedule server:", err)
-		return
-	}
-	client := pb.NewScheduleServiceClient(schedule)
-	// 获取worker
-	provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
-	if err != nil {
-		fmt.Errorf("failed to call method:", err)
-		return
-	}
+	for task := range tasks {
+		ns.Node.Logger.Info("Start plotting:",
+			zap.Int("Worker", id),
+			zap.Int64("Index", task.Index),
+		)
+		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return fmt.Errorf("Error connecting to schedule server:", err)
+		}
+		client := pb.NewScheduleServiceClient(schedule)
+		// 获取worker
+		provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
+		if err != nil {
+			return fmt.Errorf("failed to call method:", err)
 
-	// 获取provider connect
-	connect, err := grpc.Dial(provider.Host + ":" + provider.Port)
-	if err != nil {
-		log.Fatalln("Error connecting to server:", err)
-		return
-	}
+		}
 
-	ns.Node.remotePlot(<-task, connect)
+		// 获取provider connect
+		connect, err := grpc.Dial(provider.Host + ":" + provider.Port)
+		if err != nil {
+			return fmt.Errorf("Error connecting to server:", err)
+
+		}
+
+		ns.Node.remotePlot(task, connect)
+	}
+	return nil
 }
 
 func (ns *NodeServer) startPlot(parallel int) {
 	n := &ns.Node
 
-	task := make(chan *Task)
+	tasks := make(chan *Task, len(n.Tasks))
 	var wg sync.WaitGroup
 	for w := 0; w < parallel; w++ {
 		wg.Add(1)
-		go ns.plot(task, &wg)
+		go ns.plot(w, tasks, &wg)
 	}
 	for _, t := range n.Tasks {
-		task <- t
+		tasks <- t
 	}
-	close(task)
+	close(tasks)
 	wg.Wait()
 
 	// 文件全部做完，开始比较nonce

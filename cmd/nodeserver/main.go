@@ -143,6 +143,8 @@ func main() {
 		log.Fatalln("failed to generate tasks:", err)
 	}
 
+	// 启动plot
+
 	// 启动服务
 	if err = node_server.RemoteNodeServer(); err != nil {
 		log.Fatalln("failed to start server:", err)
