@@ -239,7 +239,7 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 	task.Status = StatusType(3)
 }
 
-func (ns *NodeServer) plot(id int, tasks <-chan *Task, wg *sync.WaitGroup) error {
+func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup, errCh chan error) {
 	defer wg.Done()
 
 	for task := range tasks {
@@ -249,36 +249,45 @@ func (ns *NodeServer) plot(id int, tasks <-chan *Task, wg *sync.WaitGroup) error
 		)
 		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			return fmt.Errorf("Error connecting to schedule server:", err)
+			err = fmt.Errorf("Error connecting to schedule server:", err)
+			tasks <- task
+			errCh <- err
+			return
 		}
 		client := pb.NewScheduleServiceClient(schedule)
 		// 获取worker
 		provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
 		if err != nil {
-			return fmt.Errorf("failed to call method:", err)
-
+			ns.Node.Logger.Error("Failed to call method", zap.Error(err))
+			tasks <- task
 		}
 
 		// 获取provider connect
 		connect, err := grpc.Dial(provider.Host + ":" + provider.Port)
 		if err != nil {
-			return fmt.Errorf("Error connecting to server:", err)
-
+			ns.Node.Logger.Error("Error connecting to server:", zap.Error(err))
+			tasks <- task
 		}
 
 		ns.Node.remotePlot(task, connect)
 	}
-	return nil
 }
 
-func (ns *NodeServer) startPlot(parallel int) {
+func (ns *NodeServer) StartPlot(parallel int) error {
 	n := &ns.Node
 
 	tasks := make(chan *Task, len(n.Tasks))
+	errCh := make(chan error)
 	var wg sync.WaitGroup
 	for w := 0; w < parallel; w++ {
 		wg.Add(1)
-		go ns.plot(w, tasks, &wg)
+		go ns.plot(w, tasks, &wg, errCh)
+		select {
+		case err := <-errCh:
+			if err != nil {
+				return err
+			}
+		}
 	}
 	for _, t := range n.Tasks {
 		tasks <- t
@@ -299,10 +308,10 @@ func (ns *NodeServer) startPlot(parallel int) {
 
 	if n.nonce.Load() != nil {
 		n.Logger.Info("initialization: completed, found nonce", zap.Uint64("nonce", *n.nonce.Load()))
-		return
 	}
-
 	defer n.saveMetadata()
+
+	return nil
 }
 
 func (n *Node) saveMetadata() error {

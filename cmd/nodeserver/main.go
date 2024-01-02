@@ -144,6 +144,9 @@ func main() {
 	}
 
 	// 启动plot
+	if err = node_server.StartPlot(parallel); err != nil {
+		log.Fatalln("failed to start plot:", err)
+	}
 
 	// 启动服务
 	if err = node_server.RemoteNodeServer(); err != nil {
