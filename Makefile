@@ -19,15 +19,15 @@ endif
 .PHONY: compile-windows-test
 
 install: get-postrs-lib
-	go mod download
+	$(GOCC) mod download
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.54.2
-	go install gotest.tools/gotestsum@v1.10.1
-	go install honnef.co/go/tools/cmd/staticcheck@v0.4.5
-	go install go.uber.org/mock/mockgen@v0.3.0
+	$(GOCC) install gotest.tools/gotestsum@v1.10.1
+	$(GOCC) install honnef.co/go/tools/cmd/staticcheck@v0.4.5
+	$(GOCC) install go.uber.org/mock/mockgen@v0.3.0
 .PHONY: install
 
 tidy:
-	go mod tidy
+	$(GOCC) mod tidy
 .PHONY: tidy
 
 test-tidy:
@@ -41,12 +41,12 @@ test-tidy:
 test-fmt:
 	git diff --quiet || (echo "\033[0;31mWorking directory not clean!\033[0m" && git --no-pager diff && exit 1)
 	# We expect `go fmt` not to change anything, the test should fail otherwise
-	go fmt ./...
+	$(GOCC) fmt ./...
 	git diff --exit-code || (git --no-pager diff && git checkout . && exit 1)
 .PHONY: test-fmt
 
 clear-test-cache:
-	go clean -testcache
+	$(GOCC) clean -testcache
 .PHONY: clear-test-cache
 
 lint: get-postrs-lib
@@ -81,21 +81,21 @@ test-generate:
 .PHONY: test-generate
 
 postcli: get-postrs-lib
-	go build -o $(BIN_DIR)$@$(EXE) ./cmd/postcli
+	$(GOCC) build -o $(BIN_DIR)$@$(EXE) ./cmd/postcli
 .PHONY: postcli
 
 plotserver: get-postrs-lib
-	go build -o $(BIN_DIR)$@$(EXE) ./cmd/plotserver
+	$(GOCC) build -o $(BIN_DIR)$@$(EXE) ./cmd/plotserver
 .PHONY: plotserver
 
 nodeserver: get-postrs-lib
-	go build -o $(BIN_DIR)$@$(EXE) ./cmd/nodeserver
+	$(GOCC) build -o $(BIN_DIR)$@$(EXE) ./cmd/nodeserver
 .PHONY: nodeserver
 
 schedule: get-postrs-lib
-	go build -o $(BIN_DIR)$@$(EXE) ./cmd/schedule
+	$(GOCC) build -o $(BIN_DIR)$@$(EXE) ./cmd/schedule
 .PHONY: schedule
 
 bench:
-	@$(ULIMIT) CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" go test -benchmem -run='^$$' -bench 'BenchmarkVerifying|BenchmarkProving' github.com/spacemeshos/post/proving github.com/spacemeshos/post/verifying
+	@$(ULIMIT) CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)" $(GOCC) test -benchmem -run='^$$' -bench 'BenchmarkVerifying|BenchmarkProving' github.com/spacemeshos/post/proving github.com/spacemeshos/post/verifying
 .PHONY: bench

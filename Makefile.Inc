@@ -9,6 +9,8 @@ export GOARCH
 export GOARM
 export BIN_DIR
 
+GOCC?=go
+
 CGO_TEST_LDFLAGS = $(CGO_LDFLAGS) -Wl,-rpath,$(BIN_DIR)
 
 ifeq ($(OS),Windows_NT)
@@ -81,13 +83,13 @@ $(PROJ_DIR)$(POSTRS_SETUP_ZIP):
 get-postrs-lib: $(PROJ_DIR)$(POSTRS_SETUP_ZIP) $(BINDIR_POSTRS_SETUP_LIBS)
 
 go-env: get-postrs-lib
-	go env -w CGO_CFLAGS="$(CGO_CFLAGS)"
-	go env -w CGO_LDFLAGS="$(CGO_LDFLAGS)"
+	$(GOCC) env -w CGO_CFLAGS="$(CGO_CFLAGS)"
+	$(GOCC) env -w CGO_LDFLAGS="$(CGO_LDFLAGS)"
 .PHONY: go-env
 
 go-env-test: get-postrs-lib
-	go env -w CGO_CFLAGS="$(CGO_CFLAGS)"
-	go env -w CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)"
+	$(GOCC) env -w CGO_CFLAGS="$(CGO_CFLAGS)"
+	$(GOCC) env -w CGO_LDFLAGS="$(CGO_TEST_LDFLAGS)"
 .PHONY: go-env-test
 
 print-env: get-postrs-lib
