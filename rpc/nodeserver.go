@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 
 	"github.com/spacemeshos/post/config"
@@ -238,38 +239,55 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 	task.Status = StatusType(3)
 }
 
+func (ns *NodeServer) plot(task <-chan *Task, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalln("Error connecting to schedule server:", err)
+		return
+	}
+	client := pb.NewScheduleServiceClient(schedule)
+	// 获取worker
+	provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
+	if err != nil {
+		fmt.Errorf("failed to call method:", err)
+		return
+	}
+
+	// 获取provider connect
+	connect, err := grpc.Dial(provider.Host + ":" + provider.Port)
+	if err != nil {
+		log.Fatalln("Error connecting to server:", err)
+		return
+	}
+
+	ns.Node.remotePlot(<-task, connect)
+}
+
 func (ns *NodeServer) startPlot(parallel int) {
 	n := &ns.Node
-	for _, task := range n.Tasks {
-		// 获取worker
-		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			log.Fatalln("Error connecting to schedule server:", err)
-			return
-		}
-		client := pb.NewScheduleServiceClient(schedule)
-		provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
-		if err != nil {
-			fmt.Errorf("failed to call method:", err)
-			return
-		}
 
-		// 获取provider connect
-		connect, err := grpc.Dial("10.100.85.0:1234")
-		if err != nil {
-			log.Fatalln("Error connecting to server:", err)
-			return
-		}
-		n.remotePlot(task, connect)
+	task := make(chan *Task)
+	var wg sync.WaitGroup
+	for w := 0; w < parallel; w++ {
+		wg.Add(1)
+		go ns.plot(task, &wg)
 	}
+	for _, t := range n.Tasks {
+		task <- t
+	}
+	close(task)
+	wg.Wait()
 
 	// 文件全部做完，开始比较nonce
 	n.nonce.Store(&n.Nonces[0].Nonce)
 	n.nonceValue.Store(&n.Nonces[0].NonceValue)
-	for _, ns := range n.Nonces {
-		if bytes.Compare(*n.nonceValue.Load(), ns.NonceValue) > 0 {
-			n.nonce.Store(&ns.Nonce)
-			n.nonceValue.Store(&ns.NonceValue)
+	for _, nes := range n.Nonces {
+		n.Logger.Debug("Get nonces:", zap.Binary("nonceValue", nes.NonceValue))
+		if bytes.Compare(*n.nonceValue.Load(), nes.NonceValue) > 0 {
+			n.nonce.Store(&nes.Nonce)
+			n.nonceValue.Store(&nes.NonceValue)
 		}
 	}
 
