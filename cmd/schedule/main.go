@@ -25,6 +25,8 @@ func parseFlags() {
 }
 
 func main() {
+	parseFlags()
+
 	zapCfg := zap.Config{
 		Level:    zap.NewAtomicLevelAt(logLevel),
 		Encoding: "console",
@@ -47,7 +49,6 @@ func main() {
 	}
 
 	schedule_server := rpc.NewScheduleServer(logger)
-	parseFlags()
 
 	schedule_server.Host = host
 	schedule_server.Port = port

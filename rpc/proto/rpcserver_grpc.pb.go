@@ -19,11 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ScheduleService_AddProvider_FullMethodName     = "/rpc.ScheduleService/addProvider"
-	ScheduleService_SelectProvider_FullMethodName  = "/rpc.ScheduleService/selectProvider"
-	ScheduleService_SwitchProvider_FullMethodName  = "/rpc.ScheduleService/switchProvider"
-	ScheduleService_GetFreeProvider_FullMethodName = "/rpc.ScheduleService/getFreeProvider"
-	ScheduleService_ShowProviders_FullMethodName   = "/rpc.ScheduleService/showProviders"
+	ScheduleService_AddProvider_FullMethodName     = "/rpc.ScheduleService/AddProvider"
+	ScheduleService_SelectProvider_FullMethodName  = "/rpc.ScheduleService/SelectProvider"
+	ScheduleService_SwitchProvider_FullMethodName  = "/rpc.ScheduleService/SwitchProvider"
+	ScheduleService_GetFreeProvider_FullMethodName = "/rpc.ScheduleService/GetFreeProvider"
+	ScheduleService_ShowProviders_FullMethodName   = "/rpc.ScheduleService/ShowProviders"
 )
 
 // ScheduleServiceClient is the client API for ScheduleService service.
@@ -232,23 +232,23 @@ var ScheduleService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*ScheduleServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "addProvider",
+			MethodName: "AddProvider",
 			Handler:    _ScheduleService_AddProvider_Handler,
 		},
 		{
-			MethodName: "selectProvider",
+			MethodName: "SelectProvider",
 			Handler:    _ScheduleService_SelectProvider_Handler,
 		},
 		{
-			MethodName: "switchProvider",
+			MethodName: "SwitchProvider",
 			Handler:    _ScheduleService_SwitchProvider_Handler,
 		},
 		{
-			MethodName: "getFreeProvider",
+			MethodName: "GetFreeProvider",
 			Handler:    _ScheduleService_GetFreeProvider_Handler,
 		},
 		{
-			MethodName: "showProviders",
+			MethodName: "ShowProviders",
 			Handler:    _ScheduleService_ShowProviders_Handler,
 		},
 	},

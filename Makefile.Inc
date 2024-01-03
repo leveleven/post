@@ -9,7 +9,7 @@ export GOARCH
 export GOARM
 export BIN_DIR
 
-GOCC?=go
+GOCC?=go1.20
 
 CGO_TEST_LDFLAGS = $(CGO_LDFLAGS) -Wl,-rpath,$(BIN_DIR)
 

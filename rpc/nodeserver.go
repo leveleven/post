@@ -260,6 +260,7 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup, errCh c
 		if err != nil {
 			ns.Node.Logger.Error("Failed to call method", zap.Error(err))
 			tasks <- task
+			return
 		}
 
 		// 获取provider connect
@@ -267,6 +268,7 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup, errCh c
 		if err != nil {
 			ns.Node.Logger.Error("Error connecting to server:", zap.Error(err))
 			tasks <- task
+			return
 		}
 
 		ns.Node.remotePlot(task, connect)
@@ -289,6 +291,7 @@ func (ns *NodeServer) StartPlot(parallel int) error {
 			}
 		}
 	}
+
 	for _, t := range n.Tasks {
 		tasks <- t
 	}

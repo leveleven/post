@@ -144,10 +144,14 @@ func (ss *ScheduleServer) RemoteScheduleServer() error {
 
 	// tls
 	creds, err := credentials.NewServerTLSFromFile("server.crt", "server.key")
+	if err != nil {
+		return fmt.Errorf("Failed to load tls file: %v", err)
+	}
 	rss := grpc.NewServer(grpc.Creds(creds))
 	reflection.Register(rss)
+
 	pb.RegisterScheduleServiceServer(rss, ss)
-	fmt.Println("Schedule server is listening on " + ss.Host + ":" + ss.Port)
+	ss.logger.Info("Schedule server is listening on " + ss.Host + ":" + ss.Port)
 	if err := rss.Serve(listener); err != nil {
 		return fmt.Errorf("failed to serve: %v", err)
 	}

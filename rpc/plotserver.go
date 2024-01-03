@@ -135,7 +135,7 @@ func (ps *PlotServer) RemotePlotServer() error {
 	rps := grpc.NewServer()
 	reflection.Register(rps)
 	pb.RegisterPlotServiceServer(rps, ps)
-	fmt.Println("Plot server is listening on " + ps.Host + ":" + ps.Port)
+	ps.Logger.Info("Plot server is listening on " + ps.Host + ":" + ps.Port)
 	if err := rps.Serve(listener); err != nil {
 		return fmt.Errorf("failed to serve:", err)
 	}
