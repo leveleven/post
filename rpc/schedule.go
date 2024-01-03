@@ -9,7 +9,6 @@ import (
 	pb "github.com/spacemeshos/post/rpc/proto"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -143,11 +142,12 @@ func (ss *ScheduleServer) RemoteScheduleServer() error {
 	}
 
 	// tls
-	creds, err := credentials.NewServerTLSFromFile("server.crt", "server.key")
-	if err != nil {
-		return fmt.Errorf("Failed to load tls file: %v", err)
-	}
-	rss := grpc.NewServer(grpc.Creds(creds))
+	// creds, err := credentials.NewServerTLSFromFile("./server.pem", "./server.key")
+	// if err != nil {
+	// 	return fmt.Errorf("Failed to load tls file: %v", err)
+	// }
+	// rss := grpc.NewServer(grpc.Creds(creds))
+	rss := grpc.NewServer(grpc.Creds(nil))
 	reflection.Register(rss)
 
 	pb.RegisterScheduleServiceServer(rss, ss)

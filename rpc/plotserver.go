@@ -84,6 +84,11 @@ func (ps *PlotServer) Plot(request *pb.Task, stream pb.PlotService_PlotServer) e
 
 func (ps *PlotServer) submitPlot() error {
 	// tls
+	// creds, err := credentials.NewClientTLSFromFile("server.pem", "xjxh")
+	// if err != nil {
+	// 	return fmt.Errorf("Failed to load tls file: %v", err)
+	// }
+	// connect, err := grpc.Dial(ps.Schedule, grpc.WithTransportCredentials(creds))
 	connect, err := grpc.Dial(ps.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("failed connecting to server:", err)
@@ -132,7 +137,7 @@ func (ps *PlotServer) RemotePlotServer() error {
 		return fmt.Errorf("failed to listen", ps.Host+":"+ps.Port, err)
 	}
 
-	rps := grpc.NewServer()
+	rps := grpc.NewServer(grpc.Creds(nil))
 	reflection.Register(rps)
 	pb.RegisterPlotServiceServer(rps, ps)
 	ps.Logger.Info("Plot server is listening on " + ps.Host + ":" + ps.Port)

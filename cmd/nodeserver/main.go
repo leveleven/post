@@ -64,7 +64,7 @@ func parseFlags() {
 	flag.StringVar(&opts.DataDir, "datadir", DefaultDataDir, "filesystem datadir path")
 	flag.StringVar(&commitmentAtxIdHex, "commitmentAtxId", "", "commitment atx id, in hex (required)")
 	flag.Var(&numUnits, "numUnits", "number of units")
-	flag.IntVar(&parallel, "parallel", 40, "parallel plot number, depend on your disk bandwidth (default 40)")
+	flag.IntVar(&parallel, "parallel", 40, "parallel plot number, depend on your disk bandwidth")
 
 	flag.Uint64Var(&opts.MaxFileSize, "maxFileSize", opts.MaxFileSize, "max file size")
 	flag.Uint64Var(&LabelsPerUnit, "labelsPerUnit", config.MainnetConfig().LabelsPerUnit, "the number of labels per unit")
@@ -144,9 +144,10 @@ func main() {
 	}
 
 	// 启动plot
-	if err = node_server.StartPlot(parallel); err != nil {
-		log.Fatalln("failed to start plot:", err)
-	}
+	// if err = node_server.StartPlot(parallel); err != nil {
+	// 	log.Fatalln("failed to start plot:", err)
+	// }
+	go node_server.StartPlot(parallel)
 
 	// 启动服务
 	if err = node_server.RemoteNodeServer(); err != nil {
