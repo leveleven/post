@@ -282,7 +282,9 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 			zap.String("host", provider.Host+":"+provider.Port),
 			zap.String("model", provider.Model),
 		)
-		connect, err := grpc.Dial(provider.Host+":"+provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		maxSize := 20 * 1024 * 1024
+		option := grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize))
+		connect, err := grpc.Dial(provider.Host+":"+provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
 		if err != nil {
 			ns.Node.Logger.Error("Error connecting to server:", zap.Error(err))
 			tasks <- task
