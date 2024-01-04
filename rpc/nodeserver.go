@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -101,9 +102,11 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 	}
 	defer writer.Close()
 
-loop:
 	for {
 		res, err := result.Recv()
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
 			n.Logger.Error("failed to receive message", zap.String("error", err.Error()))
 			time.Sleep(5 * time.Second)
@@ -135,12 +138,6 @@ loop:
 		}
 
 		// numLabelsWritten.Store(res.FileOffset + res.CurrentPosition + uint64(batchSize))
-
-		select {
-		case <-result.Context().Done():
-			break loop
-		default:
-		}
 	}
 
 	return nil
@@ -241,13 +238,8 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 	task.Status = StatusType(3)
 }
 
-func (ns *NodeServer) getProvider() (*pb.Provider, error) {
+func (ns *NodeServer) getProvider(client pb.ScheduleServiceClient) (*pb.Provider, error) {
 	for {
-		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			return &pb.Provider{}, fmt.Errorf("Error connecting to schedule server: %v", err)
-		}
-		client := pb.NewScheduleServiceClient(schedule)
 		provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
 		if err != nil {
 			return &pb.Provider{}, fmt.Errorf("Failed to call method: %v", err)
@@ -265,26 +257,35 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 
 	for task := range tasks {
 		// 获取provider
-		// creds, err := credentials.NewClientTLSFromFile("server.pem", "xjxh")
-		// if err != nil {
-		// 	ns.Node.Logger.Error("Failed to load tls file", zap.Error(err))
-		// }
-		// schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(creds))
-		provider, err := ns.getProvider()
+		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			ns.Node.Logger.Error("Error connecting to schedule server", zap.Error(err))
+		}
+		client := pb.NewScheduleServiceClient(schedule)
+		defer schedule.Close()
+		provider, err := ns.getProvider(client)
 		if err != nil {
 			ns.Node.Logger.Error("Failed to get provider", zap.Error(err))
 			tasks <- task
 		}
+		task.Provider = Provider{
+			ID:    provider.ID,
+			Model: provider.Model,
+			UUID:  provider.UUID,
+			Host:  provider.Host,
+			Port:  provider.Port,
+			InUse: true,
+		}
 
 		// 获取provider connect
 		ns.Node.Logger.Info("Get provider",
-			zap.String("uuid", provider.UUID),
-			zap.String("host", provider.Host+":"+provider.Port),
-			zap.String("model", provider.Model),
+			zap.String("uuid", task.Provider.UUID),
+			zap.String("host", task.Provider.Host+":"+task.Provider.Port),
+			zap.String("model", task.Provider.Model),
 		)
 		maxSize := 20 * 1024 * 1024
 		option := grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize))
-		connect, err := grpc.Dial(provider.Host+":"+provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
+		connect, err := grpc.Dial(task.Provider.Host+":"+task.Provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
 		if err != nil {
 			ns.Node.Logger.Error("Error connecting to server:", zap.Error(err))
 			tasks <- task
@@ -302,6 +303,10 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 			zap.Int("Worker", id),
 			zap.Int64("Index", task.Index),
 		)
+		_, err = client.SwitchProvider(context.Background(), &pb.UUID{UUID: provider.UUID})
+		if err != nil {
+			ns.Node.Logger.Error("Failed to call method", zap.Error(err))
+		}
 	}
 }
 

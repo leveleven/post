@@ -112,7 +112,10 @@ func (ss *ScheduleServer) GetFreeProvider(ctx context.Context, empty *pb.Empty) 
 				InUse: provider.InUse,
 			}
 			ss.switchProvider(provider.UUID)
-			ss.logger.Info("find a idle provider", zap.String("UUID", provider.UUID))
+			ss.logger.Info("find a idle provider",
+				zap.Uint32("id", provider.ID),
+				zap.String("model", provider.Model),
+				zap.String("UUID", provider.UUID))
 			return response, nil
 		}
 	}
