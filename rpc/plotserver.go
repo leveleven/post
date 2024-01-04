@@ -62,14 +62,18 @@ func (ps *PlotServer) Plot(request *pb.Task, stream pb.PlotService_PlotServer) e
 		return nil
 	}
 
-	ps.Logger.Info("Using provider ", zap.Uint32("ID", *opts.ProviderID))
+	ps.Logger.Info("Get task",
+		zap.Int64("task index", request.Index),
+		zap.Binary("node id", request.Id),
+		zap.Uint32("numUnits", request.NumUnits),
+		zap.Uint32("using provider id", *opts.ProviderID))
 	init, err := initialization.NewSingleInitializer(
 		initialization.WithConfig(cfg),
 		initialization.WithInitOpts(opts),
 		initialization.WithNodeId(request.Id),
 		initialization.WithCommitmentAtxId(request.CommitmentAtxId),
 		initialization.WithLogger(ps.Logger),
-		initialization.WithIndex(int(request.Index)),
+		initialization.WithIndex(request.Index),
 	)
 	if err != nil {
 		log.Panic(err.Error())

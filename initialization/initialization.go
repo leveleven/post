@@ -52,7 +52,7 @@ func CPUProviderID() uint32 {
 type option struct {
 	nodeId          []byte
 	commitmentAtxId []byte
-	index           int
+	index           int64
 
 	commitment []byte
 

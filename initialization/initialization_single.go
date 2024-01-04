@@ -19,8 +19,8 @@ import (
 type InitializerSingle struct {
 	nodeId          []byte
 	commitmentAtxId []byte
-
-	commitment []byte
+	commitment      []byte
+	index           int64
 
 	cfg  Config
 	opts InitOpts
@@ -46,8 +46,7 @@ type InitializerSingle struct {
 
 func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
 	options := &option{
-		logger: zap.NewNop(),
-
+		logger:            zap.NewNop(),
 		powDifficultyFunc: shared.PowDifficulty,
 	}
 
@@ -71,6 +70,7 @@ func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
 		logger:            options.logger,
 		powDifficultyFunc: options.powDifficultyFunc,
 		referenceOracle:   options.referenceOracle,
+		index:             options.index,
 	}
 
 	return init, nil
@@ -86,9 +86,8 @@ func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer
 	if err != nil {
 		return err
 	}
-
-	index := init.opts.FromFileIdx
-
+	//这里
+	index := init.index
 	init.logger.Info("initialization started",
 		zap.String("datadir", init.opts.DataDir),
 		zap.Uint32("numUnits", init.opts.NumUnits),
@@ -99,7 +98,7 @@ func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer
 	init.logger.Info("initialization file layout",
 		zap.Uint64("labelsPerFile", layout.FileNumLabels),
 		zap.Uint64("labelsLastFile", layout.LastFileNumLabels),
-		zap.Int("FileIndex", index),
+		zap.Int64("FileIndex", index),
 	)
 
 	numLabels := uint64(init.opts.NumUnits) * init.cfg.LabelsPerUnit
@@ -145,11 +144,11 @@ func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer
 	return nil
 }
 
-func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, wo, woReference *oracle.WorkOracle, fileIndex int, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
+func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, wo, woReference *oracle.WorkOracle, fileIndex int64, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
 	numLabelsWritten := uint64(0)
 
 	fields := []zap.Field{
-		zap.Int("fileIndex", fileIndex),
+		zap.Int64("fileIndex", fileIndex),
 		zap.Uint64("currentNumLabels", numLabelsWritten),
 		zap.Uint64("targetNumLabels", fileNumLabels),
 		zap.Uint64("startPosition", fileOffset),
@@ -165,7 +164,7 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 		}
 
 		init.logger.Debug("initialization: status",
-			zap.Int("fileIndex", fileIndex),
+			zap.Int64("fileIndex", fileIndex),
 			zap.Uint64("currentPosition", currentPosition),
 			zap.Uint64("remaining", remaining),
 		)
@@ -210,7 +209,7 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 	return nil
 }
 
-func WithIndex(index int) OptionFunc {
+func WithIndex(index int64) OptionFunc {
 	return func(opts *option) error {
 		opts.index = index
 		return nil
