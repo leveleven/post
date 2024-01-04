@@ -105,7 +105,7 @@ loop:
 	for {
 		res, err := result.Recv()
 		if err != nil {
-			n.Logger.Error("failed to receive message: %v", zap.String("error", err.Error()))
+			n.Logger.Error("failed to receive message", zap.String("error", err.Error()))
 			time.Sleep(5 * time.Second)
 			continue
 		}

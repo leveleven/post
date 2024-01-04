@@ -19,7 +19,6 @@ import (
 type InitializerSingle struct {
 	nodeId          []byte
 	commitmentAtxId []byte
-	commitment      []byte
 	index           int64
 
 	cfg  Config
@@ -65,7 +64,6 @@ func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
 		opts:              *options.initOpts,
 		nodeId:            options.nodeId,
 		commitmentAtxId:   options.commitmentAtxId,
-		commitment:        options.commitment,
 		diskState:         NewDiskState(options.initOpts.DataDir, uint(config.BitsPerLabel)),
 		logger:            options.logger,
 		powDifficultyFunc: options.powDifficultyFunc,
@@ -107,7 +105,7 @@ func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer
 
 	wo, err := oracle.New(
 		oracle.WithProviderID(init.opts.ProviderID),
-		oracle.WithCommitment(init.commitment),
+		oracle.WithCommitment(init.commitmentAtxId),
 		oracle.WithVRFDifficulty(difficulty),
 		oracle.WithScryptParams(init.opts.Scrypt),
 		oracle.WithLogger(init.logger),
@@ -182,10 +180,11 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 		if err != nil {
 			return fmt.Errorf("failed to compute referresultence label: %w", err)
 		}
+		// 这里错了
 		if !bytes.Equal(res.Output[(batchSize-1)*postrs.LabelLength:], reference.Output) {
 			return ErrReferenceLabelMismatch{
 				Index:      endPosition,
-				Commitment: init.commitment,
+				Commitment: init.commitmentAtxId,
 				Expected:   reference.Output,
 				Actual:     res.Output[(batchSize-1)*postrs.LabelLength:],
 			}

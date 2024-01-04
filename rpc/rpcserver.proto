@@ -20,8 +20,6 @@ service NodeService {
     rpc showTasks (empty) returns (Tasks);
 }
 
-message StreamRequest {}
-
 message StreamResponse {
     bytes  output          = 1;
     uint64 nonce           = 2;
