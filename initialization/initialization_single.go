@@ -190,13 +190,25 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 			}
 		}
 		// 这里返回res到存储机服务器，由存储机进行Nonce判断
-		result := &pb.StreamResponse{
-			Output:        res.Output,
-			Nonce:         *res.Nonce,
-			StartPosition: startPosition,
-			// FileOffset:      fileOffset,
-			// CurrentPosition: currentPosition,
+		var result *pb.StreamResponse
+		if res.Nonce != nil {
+			result = &pb.StreamResponse{
+				Output:        res.Output,
+				Nonce:         *res.Nonce,
+				StartPosition: startPosition,
+				// FileOffset:      fileOffset,
+				// CurrentPosition: currentPosition,
+			}
+		} else {
+			result = &pb.StreamResponse{
+				Output:        res.Output,
+				Nonce:         0,
+				StartPosition: startPosition,
+				// FileOffset:      fileOffset,
+				// CurrentPosition: currentPosition,
+			}
 		}
+
 		if err := stream.Send(result); err != nil {
 			return err
 		}
