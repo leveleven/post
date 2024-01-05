@@ -257,6 +257,9 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 
 	for task := range tasks {
 		// 获取provider
+		ns.Node.Logger.Info("Get task",
+			zap.Int("worker_id", id),
+			zap.Int64("plot_index", task.Index))
 		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			ns.Node.Logger.Error("Error connecting to schedule server", zap.Error(err))
