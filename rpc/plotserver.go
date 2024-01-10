@@ -53,23 +53,25 @@ func GetProviders() ([]GPUProvider, error) {
 }
 
 func (ps *PlotServer) Plot(request *pb.Task, stream pb.PlotService_PlotServer) error {
-	var cfg = config.MainnetConfig()
-	var opts = config.MainnetInitOpts()
-
-	opts.ProviderID = &request.Provider.ID
-	if opts.ProviderID == nil {
-		fmt.Printf("no enough gpu to use.")
-		return nil
+	provider := &request.Provider.ID
+	if provider == nil {
+		return fmt.Errorf("no enough gpu to use.")
 	}
 
 	ps.Logger.Info("Get task",
 		zap.Int64("task index", request.Index),
 		zap.Binary("node id", request.Id),
 		zap.Uint32("numUnits", request.NumUnits),
-		zap.Uint32("using provider id", *opts.ProviderID))
+		zap.Uint32("using provider id", *provider))
+
+	cfg := config.MainnetConfig()
+	cfg.LabelsPerUnit = request.LabelsPerUnit
+	opt := config.MainnetInitOpts()
+	opt.MaxFileSize = request.MaxFileSize
+
 	init, err := initialization.NewSingleInitializer(
 		initialization.WithConfig(cfg),
-		initialization.WithInitOpts(opts),
+		initialization.WithInitOpts(opt),
 		initialization.WithNodeId(request.Id),
 		initialization.WithCommitmentAtxId(request.CommitmentAtxId),
 		initialization.WithLogger(ps.Logger),
@@ -79,7 +81,7 @@ func (ps *PlotServer) Plot(request *pb.Task, stream pb.PlotService_PlotServer) e
 		log.Panic(err.Error())
 	}
 
-	if err := init.SingleInitialize(stream); err != nil {
+	if err := init.SingleInitialize(provider, stream); err != nil {
 		log.Panic(err)
 	}
 

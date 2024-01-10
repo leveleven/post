@@ -7,12 +7,11 @@ import "C"
 
 import (
 	"errors"
-	"sync"
 )
 
 // gpuMtx is a mutual exclusion lock preventing concurrent access
 // to any GPU device. CPU can still be used concurrently.
-var gpuMtx sync.Mutex
+// var gpuMtx sync.Mutex
 
 // DeviceClass is an enum for the type of device (CPU or GPU).
 type DeviceClass int

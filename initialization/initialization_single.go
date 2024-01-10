@@ -74,7 +74,7 @@ func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
 	return init, nil
 }
 
-func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer) error {
+func (init *InitializerSingle) SingleInitialize(provider *uint32, stream pb.PlotService_PlotServer) error {
 	if !init.mtx.TryLock() {
 		return ErrAlreadyInitializing
 	}
@@ -84,7 +84,6 @@ func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer
 	if err != nil {
 		return err
 	}
-	//这里
 	index := init.index
 	init.logger.Info("initialization started",
 		zap.String("datadir", init.opts.DataDir),
@@ -104,7 +103,7 @@ func (init *InitializerSingle) SingleInitialize(stream pb.PlotService_PlotServer
 	batchSize := init.opts.ComputeBatchSize
 
 	wo, err := oracle.New(
-		oracle.WithProviderID(init.opts.ProviderID),
+		oracle.WithProviderID(provider),
 		oracle.WithCommitment(init.commitmentAtxId),
 		oracle.WithVRFDifficulty(difficulty),
 		oracle.WithScryptParams(init.opts.Scrypt),
@@ -180,7 +179,6 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 		if err != nil {
 			return fmt.Errorf("failed to compute referresultence label: %w", err)
 		}
-		// 这里错了
 		if !bytes.Equal(res.Output[(batchSize-1)*postrs.LabelLength:], reference.Output) {
 			return ErrReferenceLabelMismatch{
 				Index:      endPosition,

@@ -51,7 +51,7 @@ var (
 	commitmentAtxIdHex string
 	commitmentAtxId    []byte
 	numUnits           numUnitsFlag
-	LabelsPerUnit      uint64
+	labelsPerUnit      uint64
 
 	logLevel zapcore.Level
 )
@@ -67,7 +67,7 @@ func parseFlags() {
 	flag.IntVar(&parallel, "parallel", 40, "parallel plot number, depend on your disk bandwidth")
 
 	flag.Uint64Var(&opts.MaxFileSize, "maxFileSize", opts.MaxFileSize, "max file size")
-	flag.Uint64Var(&LabelsPerUnit, "labelsPerUnit", config.MainnetConfig().LabelsPerUnit, "the number of labels per unit")
+	flag.Uint64Var(&labelsPerUnit, "labelsPerUnit", config.MainnetConfig().LabelsPerUnit, "the number of labels per unit")
 
 	flag.Parse()
 
@@ -132,7 +132,7 @@ func main() {
 		Node: rpc.Node{
 			CommitmentAtxId: commitmentAtxId,
 			NumUnits:        numUnits.value,
-			LabelsPerUnit:   LabelsPerUnit,
+			LabelsPerUnit:   labelsPerUnit,
 			Opts:            &opts,
 			Logger:          logger,
 		},

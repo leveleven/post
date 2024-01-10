@@ -33,8 +33,10 @@ message Task {
     bytes    commitmentAtxId  = 2;
     uint32   numUnits         = 3;
     int64    index            = 4;
-    Provider provider         = 5;
-    string   status           = 6;
+    uint64   labelsPerUnit    = 5;
+    uint64   maxFileSize      = 6;
+    Provider provider         = 7;
+    string   status           = 8;
 }
 
 message Tasks {

@@ -2,10 +2,11 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/spacemeshos/post/internal/postrs"
+	"github.com/spacemeshos/post/oracle"
 	"github.com/spacemeshos/post/rpc"
 
 	"go.uber.org/zap"
@@ -18,6 +19,7 @@ var (
 	schedule string
 
 	printProviders bool
+	woReference    *oracle.WorkOracle
 
 	logLevel zapcore.Level
 )
@@ -38,10 +40,9 @@ func main() {
 	parseFlags()
 
 	if printProviders {
-		var providers, err = rpc.GetProviders()
+		providers, err := postrs.OpenCLProviders()
 		if err != nil {
-			fmt.Println(err)
-			return
+			log.Fatalln("failed to get OpenCL providers", err)
 		}
 		spew.Dump(providers)
 		return

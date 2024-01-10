@@ -110,6 +110,7 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 		if err != nil {
 			n.Logger.Error("failed to receive message", zap.String("error", err.Error()))
 			time.Sleep(5 * time.Second)
+			// 超过次数返回重新获取GPU发任务
 			continue
 		}
 		// res处理
@@ -122,7 +123,7 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 				zap.Uint64("nonce", res.Nonce),
 				zap.String("value", hex.EncodeToString(candidate)),
 			}
-			n.Logger.Debug("initialization: found nonce", fields...)
+			n.Logger.Debug("nodeserver: found nonce", fields...)
 
 			// 判断全局nonce
 			nonce := Nonce{
@@ -170,7 +171,7 @@ func (n *Node) getNodeID() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate identity: %w", err)
 	}
-	n.Logger.Info("generated node id", zap.ByteString("id", pub))
+	n.Logger.Info("nodeserver: generated node id", zap.ByteString("id", pub))
 	if err := n.saveKey(priv); err != nil {
 		return nil, fmt.Errorf("save key failed: ", err)
 	}
@@ -186,7 +187,7 @@ func (ns *NodeServer) GenerateTasks() error {
 	ns.Node.nodeID = id
 
 	lastFileIndex := ns.Node.Opts.TotalFiles(ns.Node.LabelsPerUnit)
-	ns.Node.Logger.Info("file infomation",
+	ns.Node.Logger.Info("nodeserver: file infomation",
 		zap.Uint32("numUnits", ns.Node.NumUnits),
 		zap.Int("files", lastFileIndex),
 		zap.Uint64("labelsPerUnit", ns.Node.LabelsPerUnit),
@@ -202,7 +203,15 @@ func (ns *NodeServer) GenerateTasks() error {
 	return nil
 }
 
-func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
+func (n *Node) remotePlot(task *Task) {
+	maxSize := 20 * 1024 * 1024
+	option := grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize))
+	connect, err := grpc.Dial(task.Provider.Host+":"+task.Provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
+	if err != nil {
+		n.Logger.Error("Error connecting to server:", zap.Error(err))
+		// tasks <- task
+		return
+	}
 	defer connect.Close()
 
 	// 获取connect(最大值判断)
@@ -212,6 +221,8 @@ func (n *Node) remotePlot(task *Task, connect *grpc.ClientConn) {
 		CommitmentAtxId: n.CommitmentAtxId,
 		NumUnits:        n.NumUnits,
 		Index:           task.Index,
+		LabelsPerUnit:   n.LabelsPerUnit,
+		MaxFileSize:     n.Opts.MaxFileSize,
 		Provider: &pb.Provider{
 			ID:    task.Provider.ID,
 			Model: task.Provider.Model,
@@ -255,17 +266,19 @@ func (ns *NodeServer) getProvider(client pb.ScheduleServiceClient) (*pb.Provider
 func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		ns.Node.Logger.Error("Error connecting to schedule server", zap.Error(err))
+	}
+	client := pb.NewScheduleServiceClient(schedule)
+	defer schedule.Close()
+
 	for task := range tasks {
 		// 获取provider
 		ns.Node.Logger.Info("Get task",
 			zap.Int("worker_id", id),
 			zap.Int64("plot_index", task.Index))
-		schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			ns.Node.Logger.Error("Error connecting to schedule server", zap.Error(err))
-		}
-		client := pb.NewScheduleServiceClient(schedule)
-		defer schedule.Close()
+
 		provider, err := ns.getProvider(client)
 		if err != nil {
 			ns.Node.Logger.Error("Failed to get provider", zap.Error(err))
@@ -281,26 +294,18 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 		}
 
 		// 获取provider connect
-		ns.Node.Logger.Info("Get provider",
+		ns.Node.Logger.Info("nodeserver: get provider",
 			zap.String("uuid", task.Provider.UUID),
 			zap.String("host", task.Provider.Host+":"+task.Provider.Port),
 			zap.String("model", task.Provider.Model),
 		)
-		maxSize := 20 * 1024 * 1024
-		option := grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize))
-		connect, err := grpc.Dial(task.Provider.Host+":"+task.Provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
-		if err != nil {
-			ns.Node.Logger.Error("Error connecting to server:", zap.Error(err))
-			tasks <- task
-			return
-		}
 
 		ns.Node.Logger.Info("Start plotting:",
 			zap.Int("Worker", id),
 			zap.Int64("Index", task.Index),
 		)
 
-		ns.Node.remotePlot(task, connect)
+		ns.Node.remotePlot(task)
 
 		ns.Node.Logger.Info("Finish plot:",
 			zap.Int("Worker", id),
@@ -313,7 +318,7 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 	}
 }
 
-func (ns *NodeServer) StartPlot(parallel int) error {
+func (ns *NodeServer) StartPlot(parallel int) {
 	n := &ns.Node
 
 	tasks := make(chan *Task, len(n.Tasks))
@@ -330,22 +335,31 @@ func (ns *NodeServer) StartPlot(parallel int) error {
 	wg.Wait()
 
 	// 文件全部做完，开始比较nonce
-	n.nonce.Store(&n.Nonces[0].Nonce)
-	n.nonceValue.Store(&n.Nonces[0].NonceValue)
 	for _, nes := range n.Nonces {
-		n.Logger.Debug("Get nonces:", zap.Binary("nonceValue", nes.NonceValue))
-		if bytes.Compare(*n.nonceValue.Load(), nes.NonceValue) > 0 {
+		fields := []zap.Field{
+			zap.Uint64("nonce", nes.Nonce),
+			zap.String("nonceValue", hex.EncodeToString(nes.NonceValue)),
+		}
+		n.Logger.Debug("nodeserver: get nonces", fields...)
+		if n.nonceValue.Load() == nil || bytes.Compare(nes.NonceValue, *n.nonceValue.Load()) < 0 {
+			nonceValue := make([]byte, postrs.LabelLength)
+			copy(nonceValue, nes.NonceValue)
+
+			n.Logger.Info("nodeserver: found new best nonce", fields...)
 			n.nonce.Store(&nes.Nonce)
-			n.nonceValue.Store(&nes.NonceValue)
+			n.nonceValue.Store(&nonceValue)
 		}
 	}
 
 	if n.nonce.Load() != nil {
-		n.Logger.Info("initialization: completed, found nonce", zap.Uint64("nonce", *n.nonce.Load()))
+		n.Logger.Info("nodeserver: completed, found nonce",
+			zap.Uint64("nonce", *n.nonce.Load()),
+			zap.String("nonceValue", hex.EncodeToString(*n.nonceValue.Load())),
+		)
 	}
 	defer n.saveMetadata()
 
-	return nil
+	return
 }
 
 func (n *Node) saveMetadata() error {
