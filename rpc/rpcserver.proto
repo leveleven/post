@@ -6,8 +6,8 @@ option go_package = "/proto";
 
 service ScheduleService {
     rpc addProvider (Provider) returns (UUID);
-    rpc selectProvider (UUID) returns (Provider);
-    rpc switchProvider (UUID) returns (Provider);
+    // rpc selectProvider (UUID) returns (Provider);
+    rpc changeProviderStatus (Pstatus) returns (Provider);
     rpc getFreeProvider (empty) returns (Provider);
     rpc showProviders (empty) returns (Providers);
 }
@@ -57,15 +57,21 @@ message Provider {
     string   UUID        = 3;
 	string   Host        = 4;
 	string   Port        = 5;
-	bool     inUse       = 6;
+    int32    Status      = 6;
 }
 
 message Providers {
     repeated Provider Provider = 1;
 }
 
+message Pstatus {
+    string UUID   = 1;
+    int32  Status = 2;
+}
+
 message UUID {
-    string UUID = 1;
+    string UUID   = 1;
+    int32  Status = 2;
 }
 
 message empty {}

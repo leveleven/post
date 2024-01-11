@@ -19,11 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ScheduleService_AddProvider_FullMethodName     = "/rpc.ScheduleService/addProvider"
-	ScheduleService_SelectProvider_FullMethodName  = "/rpc.ScheduleService/selectProvider"
-	ScheduleService_SwitchProvider_FullMethodName  = "/rpc.ScheduleService/switchProvider"
-	ScheduleService_GetFreeProvider_FullMethodName = "/rpc.ScheduleService/getFreeProvider"
-	ScheduleService_ShowProviders_FullMethodName   = "/rpc.ScheduleService/showProviders"
+	ScheduleService_AddProvider_FullMethodName          = "/rpc.ScheduleService/addProvider"
+	ScheduleService_ChangeProviderStatus_FullMethodName = "/rpc.ScheduleService/changeProviderStatus"
+	ScheduleService_GetFreeProvider_FullMethodName      = "/rpc.ScheduleService/getFreeProvider"
+	ScheduleService_ShowProviders_FullMethodName        = "/rpc.ScheduleService/showProviders"
 )
 
 // ScheduleServiceClient is the client API for ScheduleService service.
@@ -31,8 +30,9 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ScheduleServiceClient interface {
 	AddProvider(ctx context.Context, in *Provider, opts ...grpc.CallOption) (*UUID, error)
-	SelectProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error)
-	SwitchProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error)
+	// rpc selectProvider (UUID) returns (Provider);
+	// rpc switchProvider (Pstatus) returns (Provider);
+	ChangeProviderStatus(ctx context.Context, in *Pstatus, opts ...grpc.CallOption) (*Provider, error)
 	GetFreeProvider(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Provider, error)
 	ShowProviders(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Providers, error)
 }
@@ -54,18 +54,9 @@ func (c *scheduleServiceClient) AddProvider(ctx context.Context, in *Provider, o
 	return out, nil
 }
 
-func (c *scheduleServiceClient) SelectProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error) {
+func (c *scheduleServiceClient) ChangeProviderStatus(ctx context.Context, in *Pstatus, opts ...grpc.CallOption) (*Provider, error) {
 	out := new(Provider)
-	err := c.cc.Invoke(ctx, ScheduleService_SelectProvider_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *scheduleServiceClient) SwitchProvider(ctx context.Context, in *UUID, opts ...grpc.CallOption) (*Provider, error) {
-	out := new(Provider)
-	err := c.cc.Invoke(ctx, ScheduleService_SwitchProvider_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, ScheduleService_ChangeProviderStatus_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +86,9 @@ func (c *scheduleServiceClient) ShowProviders(ctx context.Context, in *Empty, op
 // for forward compatibility
 type ScheduleServiceServer interface {
 	AddProvider(context.Context, *Provider) (*UUID, error)
-	SelectProvider(context.Context, *UUID) (*Provider, error)
-	SwitchProvider(context.Context, *UUID) (*Provider, error)
+	// rpc selectProvider (UUID) returns (Provider);
+	// rpc switchProvider (Pstatus) returns (Provider);
+	ChangeProviderStatus(context.Context, *Pstatus) (*Provider, error)
 	GetFreeProvider(context.Context, *Empty) (*Provider, error)
 	ShowProviders(context.Context, *Empty) (*Providers, error)
 	mustEmbedUnimplementedScheduleServiceServer()
@@ -109,11 +101,8 @@ type UnimplementedScheduleServiceServer struct {
 func (UnimplementedScheduleServiceServer) AddProvider(context.Context, *Provider) (*UUID, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddProvider not implemented")
 }
-func (UnimplementedScheduleServiceServer) SelectProvider(context.Context, *UUID) (*Provider, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SelectProvider not implemented")
-}
-func (UnimplementedScheduleServiceServer) SwitchProvider(context.Context, *UUID) (*Provider, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SwitchProvider not implemented")
+func (UnimplementedScheduleServiceServer) ChangeProviderStatus(context.Context, *Pstatus) (*Provider, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangeProviderStatus not implemented")
 }
 func (UnimplementedScheduleServiceServer) GetFreeProvider(context.Context, *Empty) (*Provider, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFreeProvider not implemented")
@@ -152,38 +141,20 @@ func _ScheduleService_AddProvider_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ScheduleService_SelectProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UUID)
+func _ScheduleService_ChangeProviderStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Pstatus)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ScheduleServiceServer).SelectProvider(ctx, in)
+		return srv.(ScheduleServiceServer).ChangeProviderStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ScheduleService_SelectProvider_FullMethodName,
+		FullMethod: ScheduleService_ChangeProviderStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ScheduleServiceServer).SelectProvider(ctx, req.(*UUID))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _ScheduleService_SwitchProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UUID)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ScheduleServiceServer).SwitchProvider(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ScheduleService_SwitchProvider_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ScheduleServiceServer).SwitchProvider(ctx, req.(*UUID))
+		return srv.(ScheduleServiceServer).ChangeProviderStatus(ctx, req.(*Pstatus))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -236,12 +207,8 @@ var ScheduleService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ScheduleService_AddProvider_Handler,
 		},
 		{
-			MethodName: "selectProvider",
-			Handler:    _ScheduleService_SelectProvider_Handler,
-		},
-		{
-			MethodName: "switchProvider",
-			Handler:    _ScheduleService_SwitchProvider_Handler,
+			MethodName: "changeProviderStatus",
+			Handler:    _ScheduleService_ChangeProviderStatus_Handler,
 		},
 		{
 			MethodName: "getFreeProvider",

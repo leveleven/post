@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,15 +28,17 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-const edKeyFileName = "key.bin"
-
 const (
+	edKeyFileName = "key.bin"
+	maxSize       = 20 * 1024 * 1024
+
 	Pending = StatusType(0)
 	Ploting = StatusType(1)
 	Ploted  = StatusType(2)
 )
 
 var DefaultDataDir = filepath.Join("/data", "post")
+var ErrReceiveDisconnect = errors.New("rpc server is disconnect")
 
 type StatusType int
 
@@ -73,7 +76,7 @@ type Task struct {
 }
 
 type Nonce struct {
-	Nonce      uint64
+	Nonce      *uint64
 	NonceValue []byte
 }
 
@@ -102,17 +105,23 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 	}
 	defer writer.Close()
 
+	var retry int
 	for {
 		res, err := result.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			n.Logger.Error("failed to receive message", zap.String("error", err.Error()))
 			time.Sleep(5 * time.Second)
+			n.Logger.Error("failed to receive message", zap.String("error", err.Error()))
 			// 超过次数返回重新获取GPU发任务
+			retry += 1
+			if retry == 5 {
+				return ErrReceiveDisconnect
+			}
 			continue
 		}
+		retry = 0
 		// res处理
 		if res.Nonce != 0 {
 			candidate := res.Output[(res.Nonce-res.StartPosition)*postrs.LabelLength:]
@@ -127,7 +136,7 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 
 			// 判断全局nonce
 			nonce := Nonce{
-				res.Nonce,
+				&res.Nonce,
 				candidate,
 			}
 			n.Nonces = append(n.Nonces, nonce)
@@ -203,14 +212,11 @@ func (ns *NodeServer) GenerateTasks() error {
 	return nil
 }
 
-func (n *Node) remotePlot(task *Task) {
-	maxSize := 20 * 1024 * 1024
+func (n *Node) remotePlot(task *Task) error {
 	option := grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize))
 	connect, err := grpc.Dial(task.Provider.Host+":"+task.Provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
 	if err != nil {
-		n.Logger.Error("Error connecting to server:", zap.Error(err))
-		// tasks <- task
-		return
+		return fmt.Errorf("Error connecting to server: %v", err)
 	}
 	defer connect.Close()
 
@@ -232,8 +238,7 @@ func (n *Node) remotePlot(task *Task) {
 
 	stream, err := client.Plot(context.Background(), request)
 	if err != nil {
-		n.Logger.Error("failed to open stream", zap.Error(err))
-		// return
+		return fmt.Errorf("failed to open stream: %v", err)
 	}
 
 	task.Status = StatusType(1)
@@ -244,9 +249,10 @@ func (n *Node) remotePlot(task *Task) {
 		}
 		n.Logger.Error("ploting failed:", fields...)
 		task.Status = StatusType(0)
-		return
+		return err
 	}
 	task.Status = StatusType(3)
+	return nil
 }
 
 func (ns *NodeServer) getProvider(client pb.ScheduleServiceClient) (*pb.Provider, error) {
@@ -279,43 +285,65 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 			zap.Int("worker_id", id),
 			zap.Int64("plot_index", task.Index))
 
-		provider, err := ns.getProvider(client)
-		if err != nil {
-			ns.Node.Logger.Error("Failed to get provider", zap.Error(err))
-			tasks <- task
+		var provider *pb.Provider
+		for {
+			provider, err = ns.getProvider(client)
+			if err != nil {
+				ns.Node.Logger.Error("Failed to get provider", zap.Error(err))
+				tasks <- task
+			}
+			task.Provider = Provider{
+				ID:     provider.ID,
+				Model:  provider.Model,
+				UUID:   provider.UUID,
+				Host:   provider.Host,
+				Port:   provider.Port,
+				Status: GPUStatusType(provider.Status),
+			}
+
+			// 获取provider connect
+			ns.Node.Logger.Info("nodeserver: get provider",
+				zap.String("uuid", task.Provider.UUID),
+				zap.String("host", task.Provider.Host+":"+task.Provider.Port),
+				zap.String("model", task.Provider.Model),
+			)
+
+			ns.Node.Logger.Info("Start plotting:",
+				zap.Int("Worker", id),
+				zap.Int64("Index", task.Index),
+			)
+
+			// 中断续传
+			if err = ns.Node.remotePlot(task); err != nil {
+				ns.Node.Logger.Warn("nodeserver: remote provider offline",
+					zap.Int64("index", task.Index),
+					zap.String("provider uuid", task.Provider.UUID),
+				)
+				if err = changeProviderStatus(context.Background(), client, provider.UUID, -1); err != nil {
+					ns.Node.Logger.Error("nodeserver: schedule rpc server", zap.Error(err))
+				}
+				continue
+			}
+			break
 		}
-		task.Provider = Provider{
-			ID:    provider.ID,
-			Model: provider.Model,
-			UUID:  provider.UUID,
-			Host:  provider.Host,
-			Port:  provider.Port,
-			InUse: true,
-		}
-
-		// 获取provider connect
-		ns.Node.Logger.Info("nodeserver: get provider",
-			zap.String("uuid", task.Provider.UUID),
-			zap.String("host", task.Provider.Host+":"+task.Provider.Port),
-			zap.String("model", task.Provider.Model),
-		)
-
-		ns.Node.Logger.Info("Start plotting:",
-			zap.Int("Worker", id),
-			zap.Int64("Index", task.Index),
-		)
-
-		ns.Node.remotePlot(task)
 
 		ns.Node.Logger.Info("Finish plot:",
 			zap.Int("Worker", id),
 			zap.Int64("Index", task.Index),
 		)
-		_, err = client.SwitchProvider(context.Background(), &pb.UUID{UUID: provider.UUID})
-		if err != nil {
-			ns.Node.Logger.Error("Failed to call method", zap.Error(err))
+
+		if err = changeProviderStatus(context.Background(), client, provider.UUID, 0); err != nil {
+			ns.Node.Logger.Error("nodeserver: schedule rpc server", zap.Error(err))
 		}
 	}
+}
+
+func changeProviderStatus(ctx context.Context, sc pb.ScheduleServiceClient, uuid string, status int32) error {
+	_, err := sc.ChangeProviderStatus(context.Background(), &pb.Pstatus{UUID: uuid, Status: status})
+	if err != nil {
+		return fmt.Errorf("Failed to call method: %v", err)
+	}
+	return nil
 }
 
 func (ns *NodeServer) StartPlot(parallel int) {
@@ -337,7 +365,7 @@ func (ns *NodeServer) StartPlot(parallel int) {
 	// 文件全部做完，开始比较nonce
 	for _, nes := range n.Nonces {
 		fields := []zap.Field{
-			zap.Uint64("nonce", nes.Nonce),
+			zap.Uint64("nonce", *nes.Nonce),
 			zap.String("nonceValue", hex.EncodeToString(nes.NonceValue)),
 		}
 		n.Logger.Debug("nodeserver: get nonces", fields...)
@@ -346,7 +374,7 @@ func (ns *NodeServer) StartPlot(parallel int) {
 			copy(nonceValue, nes.NonceValue)
 
 			n.Logger.Info("nodeserver: found new best nonce", fields...)
-			n.nonce.Store(&nes.Nonce)
+			n.nonce.Store(nes.Nonce)
 			n.nonceValue.Store(&nonceValue)
 		}
 	}

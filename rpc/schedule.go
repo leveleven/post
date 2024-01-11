@@ -12,6 +12,12 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+const (
+	offline = GPUStatusType(-1)
+	idle    = GPUStatusType(0)
+	running = GPUStatusType(1)
+)
+
 type ScheduleServer struct {
 	Providers map[string]Provider
 	Host      string
@@ -22,13 +28,29 @@ type ScheduleServer struct {
 	*pb.UnimplementedScheduleServiceServer
 }
 
+type GPUStatusType int32
+
 type Provider struct {
 	ID    uint32
 	Model string
 	UUID  string
 	Host  string
 	Port  string
-	InUse bool
+	// InUse bool
+	Status GPUStatusType
+}
+
+func (gst GPUStatusType) String() string {
+	switch gst {
+	case offline:
+		return "offline"
+	case idle:
+		return "idle"
+	case running:
+		return "running"
+	default:
+		return "unknown"
+	}
 }
 
 func NewScheduleServer(logger *zap.Logger) *ScheduleServer {
@@ -40,12 +62,12 @@ func NewScheduleServer(logger *zap.Logger) *ScheduleServer {
 
 func (ss *ScheduleServer) AddProvider(ctx context.Context, request *pb.Provider) (*pb.UUID, error) {
 	provider := Provider{
-		ID:    request.ID,
-		Model: request.Model,
-		UUID:  request.UUID,
-		Host:  request.Host,
-		Port:  request.Port,
-		InUse: false,
+		ID:     request.ID,
+		Model:  request.Model,
+		UUID:   request.UUID,
+		Host:   request.Host,
+		Port:   request.Port,
+		Status: 0,
 	}
 	ss.Providers[request.UUID] = provider
 	ss.logger.Info("add new provider", zap.String("UUID", request.UUID))
@@ -55,45 +77,46 @@ func (ss *ScheduleServer) AddProvider(ctx context.Context, request *pb.Provider)
 func (ss *ScheduleServer) SelectProvider(ctx context.Context, request *pb.UUID) (*pb.Provider, error) {
 	provider := ss.Providers[request.GetUUID()]
 	response := &pb.Provider{
-		ID:    provider.ID,
-		Model: provider.Model,
-		UUID:  provider.UUID,
-		Host:  provider.Host,
-		Port:  provider.Port,
-		InUse: provider.InUse,
+		ID:     provider.ID,
+		Model:  provider.Model,
+		UUID:   provider.UUID,
+		Host:   provider.Host,
+		Port:   provider.Port,
+		Status: int32(provider.Status),
 	}
 	return response, nil
 }
 
-func (ss *ScheduleServer) SwitchProvider(ctx context.Context, request *pb.UUID) (*pb.Provider, error) {
+func (ss *ScheduleServer) ChangeProviderStatus(ctx context.Context, request *pb.Pstatus) (*pb.Provider, error) {
 	uuid := request.GetUUID()
-	provider, err := ss.switchProvider(uuid)
+	prev := ss.Providers[uuid]
+	provider, err := ss.changeProviderStatus(uuid, request.Status)
 	if err != nil {
 		return &pb.Provider{}, err
 	}
 
 	response := &pb.Provider{
-		ID:    provider.ID,
-		Model: provider.Model,
-		UUID:  provider.UUID,
-		Host:  provider.Host,
-		Port:  provider.Port,
-		InUse: provider.InUse,
+		ID:     provider.ID,
+		Model:  provider.Model,
+		UUID:   provider.UUID,
+		Host:   provider.Host,
+		Port:   provider.Port,
+		Status: int32(provider.Status),
 	}
 	ss.logger.Info("switch provider in use",
 		zap.String("UUID", provider.UUID),
-		zap.Bool("current", !provider.InUse),
-		zap.Bool("new", provider.InUse),
+		zap.String("current", prev.Status.String()),
+		zap.String("new", GPUStatusType(provider.Status).String()),
 	)
 	return response, nil
 }
 
-func (ss *ScheduleServer) switchProvider(uuid string) (Provider, error) {
+func (ss *ScheduleServer) changeProviderStatus(uuid string, status int32) (Provider, error) {
 	provider := ss.Providers[uuid]
 	if provider.UUID == "" {
 		return Provider{}, fmt.Errorf("can not find value of uuid: ", uuid)
 	}
-	provider.InUse = !provider.InUse
+	provider.Status = GPUStatusType(status)
 	ss.Providers[uuid] = provider
 	return provider, nil
 }
@@ -102,16 +125,16 @@ func (ss *ScheduleServer) GetFreeProvider(ctx context.Context, empty *pb.Empty) 
 	ss.mut.Lock()
 	defer ss.mut.Unlock()
 	for _, provider := range ss.Providers {
-		if !provider.InUse {
+		if provider.Status == 0 {
 			response := &pb.Provider{
-				ID:    provider.ID,
-				Model: provider.Model,
-				UUID:  provider.UUID,
-				Host:  provider.Host,
-				Port:  provider.Port,
-				InUse: provider.InUse,
+				ID:     provider.ID,
+				Model:  provider.Model,
+				UUID:   provider.UUID,
+				Host:   provider.Host,
+				Port:   provider.Port,
+				Status: int32(provider.Status),
 			}
-			ss.switchProvider(provider.UUID)
+			ss.changeProviderStatus(provider.UUID, 1)
 			ss.logger.Info("find a idle provider",
 				zap.Uint32("id", provider.ID),
 				zap.String("model", provider.Model),
@@ -127,12 +150,12 @@ func (ss *ScheduleServer) ShowProviders(ctx context.Context, empty *pb.Empty) (*
 	s_providers = make([]*pb.Provider, 0)
 	for _, value := range ss.Providers {
 		s_providers = append(s_providers, &pb.Provider{
-			ID:    value.ID,
-			Model: value.Model,
-			UUID:  value.UUID,
-			Host:  value.Host,
-			Port:  value.Port,
-			InUse: value.InUse,
+			ID:     value.ID,
+			Model:  value.Model,
+			UUID:   value.UUID,
+			Host:   value.Host,
+			Port:   value.Port,
+			Status: int32(value.Status),
 		})
 	}
 	return &pb.Providers{Provider: s_providers}, nil

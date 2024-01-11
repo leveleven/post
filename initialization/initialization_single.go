@@ -153,6 +153,7 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 
 	init.logger.Info("initialization: starting to write file", fields...)
 
+	// 断点续做 numLabelsWritten
 	for currentPosition := numLabelsWritten; currentPosition < fileNumLabels; currentPosition += batchSize {
 		// The last batch might need to be smaller.
 		remaining := fileNumLabels - currentPosition
