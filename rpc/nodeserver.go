@@ -69,17 +69,11 @@ type Node struct {
 	Opts   *config.InitOpts
 }
 
-// type fileStatus struct {
-// 	index           int64
-// 	fileOffset      uint64
-// 	currentPosition uint64
-// }
-
 type task struct {
-	index           int64
-	provider        Provider
-	status          StatusType
-	currentPosition uint64
+	index    int64
+	provider Provider
+	status   StatusType
+	writer   *persistence.FileWriter
 }
 
 type Nonce struct {
@@ -105,17 +99,9 @@ func (s StatusType) String() string {
 }
 
 func (n *Node) saveFile(result pb.PlotService_PlotClient, task *task) error {
-
-	writer, err := persistence.NewLabelsWriter(n.Opts.DataDir, int(task.index), config.BitsPerLabel)
-	if err != nil {
-		return err
-	}
-	defer writer.Close()
-
 	var retry int
 	for {
 		res, err := result.Recv()
-		task.currentPosition = res.NumLabelsWritten
 		if err == io.EOF {
 			break
 		}
@@ -124,13 +110,14 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, task *task) error {
 			n.Logger.Error("failed to receive message", zap.String("error", err.Error()))
 			// 超过次数返回重新获取GPU发任务
 			retry += 1
-			if retry == 5 {
+			if retry == 3 {
 				return ErrReceiveDisconnect
 			}
 			continue
 		}
 		retry = 0
 		// res处理
+
 		if res.Nonce != 0 {
 			candidate := res.Output[(res.Nonce-res.StartPosition)*postrs.LabelLength:]
 			candidate = candidate[:postrs.LabelLength]
@@ -151,7 +138,7 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, task *task) error {
 		}
 
 		// Write labels batch to disk.
-		if err := writer.Write(res.Output); err != nil {
+		if err := task.writer.Write(res.Output); err != nil {
 			return err
 		}
 	}
@@ -188,7 +175,7 @@ func (n *Node) getNodeID() ([]byte, error) {
 	}
 	n.Logger.Info("nodeserver: generated node id", zap.ByteString("id", pub))
 	if err := n.saveKey(priv); err != nil {
-		return nil, fmt.Errorf("save key failed: ", err)
+		return nil, fmt.Errorf("save key failed: %w", err)
 	}
 	return pub, nil
 }
@@ -222,19 +209,55 @@ func (n *Node) remotePlot(task *task) error {
 	option := grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize))
 	connect, err := grpc.Dial(task.provider.Host+":"+task.provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
 	if err != nil {
-		return fmt.Errorf("Error connecting to server: %v", err)
+		return fmt.Errorf("error connecting to server: %w", err)
 	}
 	defer connect.Close()
 
 	// 获取connect(最大值判断)
 	client := pb.NewPlotServiceClient(connect)
+
+	// 打开文件
+	task.writer, err = persistence.NewLabelsWriter(n.Opts.DataDir, int(task.index), config.BitsPerLabel)
+	if err != nil {
+		return err
+	}
+	defer task.writer.Close()
+	numLabelsWritten, err := task.writer.NumLabelsWritten()
+	if err != nil {
+		return err
+	}
+
+	fileNumLabels := n.Opts.MaxFileNumLabels()
+
+	fields := []zap.Field{
+		zap.Int64("fileIndex", task.index),
+		zap.Uint64("currentNumLabels", numLabelsWritten),
+		zap.Uint64("targetNumLabels", fileNumLabels),
+	}
+	switch {
+	case numLabelsWritten == fileNumLabels:
+		n.Logger.Info("nodeserver: file already initialized", fields...)
+		return nil
+	case numLabelsWritten > fileNumLabels:
+		n.Logger.Info("nodeserver: truncating file")
+		if err := task.writer.Truncate(fileNumLabels); err != nil {
+			return err
+		}
+		return nil
+	case numLabelsWritten > 0:
+		n.Logger.Info("nodeserver: continuing to write file", fields...)
+	default:
+		n.Logger.Info("nodeserver: starting to write file", fields...)
+	}
+
 	request := &pb.Task{
-		Id:              n.nodeID,
-		CommitmentAtxId: n.CommitmentAtxId,
-		NumUnits:        n.NumUnits,
-		Index:           task.index,
-		LabelsPerUnit:   n.LabelsPerUnit,
-		MaxFileSize:     n.Opts.MaxFileSize,
+		Id:               n.nodeID,
+		CommitmentAtxId:  n.CommitmentAtxId,
+		NumUnits:         n.NumUnits,
+		Index:            task.index,
+		LabelsPerUnit:    n.LabelsPerUnit,
+		MaxFileSize:      n.Opts.MaxFileSize,
+		NumLabelsWritten: numLabelsWritten,
 		Provider: &pb.Provider{
 			ID:    task.provider.ID,
 			Model: task.provider.Model,
@@ -265,7 +288,7 @@ func (ns *NodeServer) getProvider(client pb.ScheduleServiceClient) (*pb.Provider
 	for {
 		provider, err := client.GetFreeProvider(context.Background(), &pb.Empty{})
 		if err != nil {
-			return &pb.Provider{}, fmt.Errorf("Failed to call method: %v", err)
+			return &pb.Provider{}, fmt.Errorf("failed to call method: %w", err)
 		}
 		if provider.UUID == "" {
 			time.Sleep(5 * time.Second)
@@ -348,7 +371,7 @@ func (ns *NodeServer) plot(id int, tasks chan *task, wg *sync.WaitGroup) {
 func changeProviderStatus(ctx context.Context, sc pb.ScheduleServiceClient, uuid string, status int32) error {
 	_, err := sc.ChangeProviderStatus(context.Background(), &pb.Pstatus{UUID: uuid, Status: status})
 	if err != nil {
-		return fmt.Errorf("Failed to call method: %v", err)
+		return fmt.Errorf("failed to call method: %w", err)
 	}
 	return nil
 }
@@ -393,8 +416,6 @@ func (ns *NodeServer) StartPlot(parallel int) {
 		)
 	}
 	defer n.saveMetadata()
-
-	return
 }
 
 func (n *Node) saveMetadata() error {
@@ -424,7 +445,7 @@ func (ns *NodeServer) RemoteNodeServer() error {
 	pb.RegisterNodeServiceServer(rps, ns)
 	ns.Node.Logger.Info("Node server is listening on " + ns.Host + ":" + ns.Port)
 	if err := rps.Serve(listener); err != nil {
-		return fmt.Errorf("failed to serve:", err)
+		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil
 }

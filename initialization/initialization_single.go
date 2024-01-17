@@ -17,19 +17,19 @@ import (
 
 // Initializer is responsible for initializing a new PoST commitment.
 type InitializerSingle struct {
-	nodeId           []byte
-	commitmentAtxId  []byte
-	index            int64
-	numLabelsWritten uint64
+	nodeId          []byte
+	commitmentAtxId []byte
+	index           int64
 
 	cfg  Config
 	opts InitOpts
 
 	// these values are atomics so they can be read from multiple other goroutines safely
 	// write is protected by mtx
-	nonceValue   atomic.Pointer[[]byte]
-	nonce        atomic.Pointer[uint64]
-	lastPosition atomic.Pointer[uint64]
+	// nonceValue   atomic.Pointer[[]byte]
+	// nonce        atomic.Pointer[uint64]
+	// lastPosition atomic.Pointer[uint64]
+	numLabelsWritten atomic.Uint64
 
 	diskState *DiskState
 	mtx       sync.RWMutex // TODO(mafa): instead of a RWMutex we should lock with a lock file to prevent other processes from initializing/modifying the data
@@ -37,10 +37,6 @@ type InitializerSingle struct {
 	logger            *Logger
 	referenceOracle   *oracle.WorkOracle
 	powDifficultyFunc func(uint64) []byte
-
-	result     chan oracle.WorkOracleResult
-	data       chan []byte
-	data_nonce chan *uint64
 }
 
 func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
@@ -70,6 +66,7 @@ func NewSingleInitializer(opts ...OptionFunc) (*InitializerSingle, error) {
 		referenceOracle:   options.referenceOracle,
 		index:             options.index,
 	}
+	init.numLabelsWritten.Store(options.numLabelsWritten)
 
 	return init, nil
 }
@@ -142,16 +139,15 @@ func (init *InitializerSingle) SingleInitialize(provider *uint32, stream pb.Plot
 }
 
 func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, wo, woReference *oracle.WorkOracle, fileIndex int64, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
-	numLabelsWritten := init.numLabelsWritten
-
+	// fileTargetPosition := fileOffset + fileNumLabels
+	numLabelsWritten := init.numLabelsWritten.Load()
 	fields := []zap.Field{
 		zap.Int64("fileIndex", fileIndex),
 		zap.Uint64("currentNumLabels", numLabelsWritten),
 		zap.Uint64("targetNumLabels", fileNumLabels),
 		zap.Uint64("startPosition", fileOffset),
 	}
-
-	init.logger.Info("initialization: starting to write file", fields...)
+	init.logger.Info("initialization: starting to plot file", fields...)
 
 	// 断点续做 numLabelsWritten
 	for currentPosition := numLabelsWritten; currentPosition < fileNumLabels; currentPosition += batchSize {
@@ -195,14 +191,14 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 				Output:           res.Output,
 				Nonce:            *res.Nonce,
 				StartPosition:    startPosition,
-				NumLabelsWritten: currentPosition,
+				NumLabelsWritten: fileOffset + currentPosition + uint64(batchSize),
 			}
 		} else {
 			result = &pb.StreamResponse{
 				Output:           res.Output,
 				Nonce:            0,
 				StartPosition:    startPosition,
-				NumLabelsWritten: currentPosition,
+				NumLabelsWritten: fileOffset + currentPosition + uint64(batchSize),
 			}
 		}
 

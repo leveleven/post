@@ -55,7 +55,7 @@ func GetProviders() ([]GPUProvider, error) {
 func (ps *PlotServer) Plot(request *pb.Task, stream pb.PlotService_PlotServer) error {
 	provider := &request.Provider.ID
 	if provider == nil {
-		return fmt.Errorf("no enough gpu to use.")
+		return fmt.Errorf("no enough gpu to use")
 	}
 
 	ps.Logger.Info("Get task",
@@ -98,7 +98,7 @@ func (ps *PlotServer) submitPlot() error {
 	// connect, err := grpc.Dial(ps.Schedule, grpc.WithTransportCredentials(creds))
 	connect, err := grpc.Dial(ps.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return fmt.Errorf("failed connecting to server:", err)
+		return fmt.Errorf("failed connecting to server: %w", err)
 	}
 	defer connect.Close()
 	client := pb.NewScheduleServiceClient(connect)
@@ -123,7 +123,7 @@ func (ps *PlotServer) submitPlot() error {
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("failed to call method:", err)
+			return fmt.Errorf("failed to call method: %w", err)
 		}
 		ps.Logger.Info("submit plot node",
 			zap.String("UUID", uuid.UUID),
@@ -136,12 +136,12 @@ func (ps *PlotServer) submitPlot() error {
 
 func (ps *PlotServer) RemotePlotServer() error {
 	if err := ps.submitPlot(); err != nil {
-		return fmt.Errorf("failed to submit plot node:", err.Error())
+		return fmt.Errorf("failed to submit plot node: %w", err)
 	}
 
 	listener, err := net.Listen("tcp", ps.Host+":"+ps.Port)
 	if err != nil {
-		return fmt.Errorf("failed to listen", ps.Host+":"+ps.Port, err)
+		return fmt.Errorf("failed to listen"+ps.Host+":"+ps.Port+": %w", err)
 	}
 
 	rps := grpc.NewServer(grpc.Creds(nil))
@@ -149,7 +149,7 @@ func (ps *PlotServer) RemotePlotServer() error {
 	pb.RegisterPlotServiceServer(rps, ps)
 	ps.Logger.Info("Plot server is listening on " + ps.Host + ":" + ps.Port)
 	if err := rps.Serve(listener); err != nil {
-		return fmt.Errorf("failed to serve:", err)
+		return fmt.Errorf("failed to serve: %w", err)
 	}
 	return nil
 }

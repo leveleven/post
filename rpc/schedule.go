@@ -114,7 +114,7 @@ func (ss *ScheduleServer) ChangeProviderStatus(ctx context.Context, request *pb.
 func (ss *ScheduleServer) changeProviderStatus(uuid string, status int32) (Provider, error) {
 	provider := ss.Providers[uuid]
 	if provider.UUID == "" {
-		return Provider{}, fmt.Errorf("can not find value of uuid: ", uuid)
+		return Provider{}, fmt.Errorf("can not find value of uuid: %s", uuid)
 	}
 	provider.Status = GPUStatusType(status)
 	ss.Providers[uuid] = provider
