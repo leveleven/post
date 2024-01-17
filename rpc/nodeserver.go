@@ -62,17 +62,24 @@ type Node struct {
 	lastPosition    atomic.Pointer[uint64]
 	LabelsPerUnit   uint64
 
-	Tasks     []*Task
+	Tasks     []*task
 	Providers []*Provider
 
 	Logger *zap.Logger
 	Opts   *config.InitOpts
 }
 
-type Task struct {
-	Index    int64
-	Provider Provider
-	Status   StatusType
+// type fileStatus struct {
+// 	index           int64
+// 	fileOffset      uint64
+// 	currentPosition uint64
+// }
+
+type task struct {
+	index           int64
+	provider        Provider
+	status          StatusType
+	currentPosition uint64
 }
 
 type Nonce struct {
@@ -97,9 +104,9 @@ func (s StatusType) String() string {
 	}
 }
 
-func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
+func (n *Node) saveFile(result pb.PlotService_PlotClient, task *task) error {
 
-	writer, err := persistence.NewLabelsWriter(n.Opts.DataDir, index, config.BitsPerLabel)
+	writer, err := persistence.NewLabelsWriter(n.Opts.DataDir, int(task.index), config.BitsPerLabel)
 	if err != nil {
 		return err
 	}
@@ -108,6 +115,7 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 	var retry int
 	for {
 		res, err := result.Recv()
+		task.currentPosition = res.NumLabelsWritten
 		if err == io.EOF {
 			break
 		}
@@ -128,7 +136,7 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 			candidate = candidate[:postrs.LabelLength]
 
 			fields := []zap.Field{
-				zap.Int("fileIndex", index),
+				zap.Int64("fileIndex", task.index),
 				zap.Uint64("nonce", res.Nonce),
 				zap.String("value", hex.EncodeToString(candidate)),
 			}
@@ -146,8 +154,6 @@ func (n *Node) saveFile(result pb.PlotService_PlotClient, index int) error {
 		if err := writer.Write(res.Output); err != nil {
 			return err
 		}
-
-		// numLabelsWritten.Store(res.FileOffset + res.CurrentPosition + uint64(batchSize))
 	}
 
 	return nil
@@ -203,18 +209,18 @@ func (ns *NodeServer) GenerateTasks() error {
 		zap.Uint64("maxFileSize", ns.Node.Opts.MaxFileSize),
 	)
 	for f := 0; f < lastFileIndex; f++ {
-		ns.Node.Tasks = append(ns.Node.Tasks, &Task{
-			Index:  int64(f),
-			Status: StatusType(0),
+		ns.Node.Tasks = append(ns.Node.Tasks, &task{
+			index:  int64(f),
+			status: StatusType(0),
 		})
 	}
 
 	return nil
 }
 
-func (n *Node) remotePlot(task *Task) error {
+func (n *Node) remotePlot(task *task) error {
 	option := grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxSize))
-	connect, err := grpc.Dial(task.Provider.Host+":"+task.Provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
+	connect, err := grpc.Dial(task.provider.Host+":"+task.provider.Port, grpc.WithTransportCredentials(insecure.NewCredentials()), option)
 	if err != nil {
 		return fmt.Errorf("Error connecting to server: %v", err)
 	}
@@ -226,13 +232,13 @@ func (n *Node) remotePlot(task *Task) error {
 		Id:              n.nodeID,
 		CommitmentAtxId: n.CommitmentAtxId,
 		NumUnits:        n.NumUnits,
-		Index:           task.Index,
+		Index:           task.index,
 		LabelsPerUnit:   n.LabelsPerUnit,
 		MaxFileSize:     n.Opts.MaxFileSize,
 		Provider: &pb.Provider{
-			ID:    task.Provider.ID,
-			Model: task.Provider.Model,
-			UUID:  task.Provider.UUID,
+			ID:    task.provider.ID,
+			Model: task.provider.Model,
+			UUID:  task.provider.UUID,
 		},
 	}
 
@@ -241,17 +247,17 @@ func (n *Node) remotePlot(task *Task) error {
 		return fmt.Errorf("failed to open stream: %v", err)
 	}
 
-	task.Status = StatusType(1)
-	if err := n.saveFile(stream, int(task.Index)); err != nil {
+	task.status = StatusType(1)
+	if err := n.saveFile(stream, task); err != nil {
 		fields := []zap.Field{
-			zap.Int64("index:", task.Index),
+			zap.Int64("index:", task.index),
 			zap.String("error:", err.Error()),
 		}
 		n.Logger.Error("ploting failed:", fields...)
-		task.Status = StatusType(0)
+		task.status = StatusType(0)
 		return err
 	}
-	task.Status = StatusType(3)
+	task.status = StatusType(3)
 	return nil
 }
 
@@ -269,7 +275,7 @@ func (ns *NodeServer) getProvider(client pb.ScheduleServiceClient) (*pb.Provider
 	}
 }
 
-func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
+func (ns *NodeServer) plot(id int, tasks chan *task, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	schedule, err := grpc.Dial(ns.Schedule, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -283,16 +289,17 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 		// 获取provider
 		ns.Node.Logger.Info("Get task",
 			zap.Int("worker_id", id),
-			zap.Int64("plot_index", task.Index))
+			zap.Int64("plot_index", task.index))
 
 		var provider *pb.Provider
+
 		for {
 			provider, err = ns.getProvider(client)
 			if err != nil {
 				ns.Node.Logger.Error("Failed to get provider", zap.Error(err))
 				tasks <- task
 			}
-			task.Provider = Provider{
+			task.provider = Provider{
 				ID:     provider.ID,
 				Model:  provider.Model,
 				UUID:   provider.UUID,
@@ -303,21 +310,21 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 
 			// 获取provider connect
 			ns.Node.Logger.Info("nodeserver: get provider",
-				zap.String("uuid", task.Provider.UUID),
-				zap.String("host", task.Provider.Host+":"+task.Provider.Port),
-				zap.String("model", task.Provider.Model),
+				zap.String("uuid", task.provider.UUID),
+				zap.String("host", task.provider.Host+":"+task.provider.Port),
+				zap.String("model", task.provider.Model),
 			)
 
 			ns.Node.Logger.Info("Start plotting:",
 				zap.Int("Worker", id),
-				zap.Int64("Index", task.Index),
+				zap.Int64("Index", task.index),
 			)
 
 			// 中断续传
 			if err = ns.Node.remotePlot(task); err != nil {
 				ns.Node.Logger.Warn("nodeserver: remote provider offline",
-					zap.Int64("index", task.Index),
-					zap.String("provider uuid", task.Provider.UUID),
+					zap.Int64("index", task.index),
+					zap.String("provider uuid", task.provider.UUID),
 				)
 				if err = changeProviderStatus(context.Background(), client, provider.UUID, -1); err != nil {
 					ns.Node.Logger.Error("nodeserver: schedule rpc server", zap.Error(err))
@@ -329,7 +336,7 @@ func (ns *NodeServer) plot(id int, tasks chan *Task, wg *sync.WaitGroup) {
 
 		ns.Node.Logger.Info("Finish plot:",
 			zap.Int("Worker", id),
-			zap.Int64("Index", task.Index),
+			zap.Int64("Index", task.index),
 		)
 
 		if err = changeProviderStatus(context.Background(), client, provider.UUID, 0); err != nil {
@@ -349,7 +356,7 @@ func changeProviderStatus(ctx context.Context, sc pb.ScheduleServiceClient, uuid
 func (ns *NodeServer) StartPlot(parallel int) {
 	n := &ns.Node
 
-	tasks := make(chan *Task, len(n.Tasks))
+	tasks := make(chan *task, len(n.Tasks))
 	var wg sync.WaitGroup
 	for w := 0; w < parallel; w++ {
 		wg.Add(1)
@@ -429,13 +436,13 @@ func (ns *NodeServer) ShowTasks(ctx context.Context, empty *pb.Empty) (*pb.Tasks
 			Id:              ns.Node.nodeID,
 			CommitmentAtxId: ns.Node.CommitmentAtxId,
 			NumUnits:        ns.Node.NumUnits,
-			Index:           value.Index,
+			Index:           value.index,
 			Provider: &pb.Provider{
-				ID:    value.Provider.ID,
-				Model: value.Provider.Model,
-				UUID:  value.Provider.UUID,
+				ID:    value.provider.ID,
+				Model: value.provider.Model,
+				UUID:  value.provider.UUID,
 			},
-			Status: value.Status.String(),
+			Status: value.status.String(),
 		})
 	}
 	return &pb.Tasks{Tasks: tasks}, nil

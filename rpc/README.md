@@ -7,3 +7,10 @@
 ## plotserver
 
 ## schedule
+
+## 目标
+- 断点续做
+
+- 池模式
+
+- 监控

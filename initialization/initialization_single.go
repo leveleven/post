@@ -17,19 +17,19 @@ import (
 
 // Initializer is responsible for initializing a new PoST commitment.
 type InitializerSingle struct {
-	nodeId          []byte
-	commitmentAtxId []byte
-	index           int64
+	nodeId           []byte
+	commitmentAtxId  []byte
+	index            int64
+	numLabelsWritten uint64
 
 	cfg  Config
 	opts InitOpts
 
 	// these values are atomics so they can be read from multiple other goroutines safely
 	// write is protected by mtx
-	nonceValue       atomic.Pointer[[]byte]
-	nonce            atomic.Pointer[uint64]
-	lastPosition     atomic.Pointer[uint64]
-	numLabelsWritten atomic.Uint64
+	nonceValue   atomic.Pointer[[]byte]
+	nonce        atomic.Pointer[uint64]
+	lastPosition atomic.Pointer[uint64]
 
 	diskState *DiskState
 	mtx       sync.RWMutex // TODO(mafa): instead of a RWMutex we should lock with a lock file to prevent other processes from initializing/modifying the data
@@ -142,7 +142,7 @@ func (init *InitializerSingle) SingleInitialize(provider *uint32, stream pb.Plot
 }
 
 func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, wo, woReference *oracle.WorkOracle, fileIndex int64, batchSize, fileOffset, fileNumLabels uint64, difficulty []byte) error {
-	numLabelsWritten := uint64(0)
+	numLabelsWritten := init.numLabelsWritten
 
 	fields := []zap.Field{
 		zap.Int64("fileIndex", fileIndex),
@@ -192,27 +192,23 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 		var result *pb.StreamResponse
 		if res.Nonce != nil {
 			result = &pb.StreamResponse{
-				Output:        res.Output,
-				Nonce:         *res.Nonce,
-				StartPosition: startPosition,
-				// FileOffset:      fileOffset,
-				// CurrentPosition: currentPosition,
+				Output:           res.Output,
+				Nonce:            *res.Nonce,
+				StartPosition:    startPosition,
+				NumLabelsWritten: currentPosition,
 			}
 		} else {
 			result = &pb.StreamResponse{
-				Output:        res.Output,
-				Nonce:         0,
-				StartPosition: startPosition,
-				// FileOffset:      fileOffset,
-				// CurrentPosition: currentPosition,
+				Output:           res.Output,
+				Nonce:            0,
+				StartPosition:    startPosition,
+				NumLabelsWritten: currentPosition,
 			}
 		}
 
 		if err := stream.Send(result); err != nil {
 			return err
 		}
-		// init.data <- res.Output
-		// init.data_nonce <- res.Nonce
 	}
 	stream.Context().Done()
 
@@ -222,6 +218,13 @@ func (init *InitializerSingle) initSingleFile(stream pb.PlotService_PlotServer, 
 func WithIndex(index int64) OptionFunc {
 	return func(opts *option) error {
 		opts.index = index
+		return nil
+	}
+}
+
+func WithNumLabelsWritten(numLabelsWritten uint64) OptionFunc {
+	return func(opts *option) error {
+		opts.numLabelsWritten = numLabelsWritten
 		return nil
 	}
 }

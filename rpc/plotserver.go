@@ -76,6 +76,7 @@ func (ps *PlotServer) Plot(request *pb.Task, stream pb.PlotService_PlotServer) e
 		initialization.WithCommitmentAtxId(request.CommitmentAtxId),
 		initialization.WithLogger(ps.Logger),
 		initialization.WithIndex(request.Index),
+		initialization.WithNumLabelsWritten(request.NumLabelsWritten),
 	)
 	if err != nil {
 		log.Panic(err.Error())

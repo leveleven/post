@@ -6,7 +6,6 @@ option go_package = "/proto";
 
 service ScheduleService {
     rpc addProvider (Provider) returns (UUID);
-    // rpc selectProvider (UUID) returns (Provider);
     rpc changeProviderStatus (Pstatus) returns (Provider);
     rpc getFreeProvider (empty) returns (Provider);
     rpc showProviders (empty) returns (Providers);
@@ -24,8 +23,7 @@ message StreamResponse {
     bytes  output          = 1;
     uint64 nonce           = 2;
     uint64 startPosition   = 3;
-    // uint64 fileOffset      = 4;
-    // uint64 currentPosition = 5;
+    uint64 numLabelsWritten = 4;
 }
 
 message Task {
@@ -37,18 +35,11 @@ message Task {
     uint64   maxFileSize      = 6;
     Provider provider         = 7;
     string   status           = 8;
+    uint64   numLabelsWritten  = 9;
 }
 
 message Tasks {
     repeated Task tasks = 1;
-}
-
-message Data {
-    bytes  output          = 1;
-    uint64 nonce           = 2;
-    uint64 startPosition   = 3;
-    // uint64 fileOffset      = 4;
-    // uint64 currentPosition = 5;
 }
 
 message Provider {
